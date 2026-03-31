@@ -1,0 +1,66 @@
+{
+  "name": "chat-agent-backend-v3",
+  "version": "3.0.0",
+  "description": "B2B AI Chat Platform with Multi-LLM Support, RAG Pipeline, and Real-time Streaming",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node scripts/dev-with-port.js",
+    "dev:raw": "nodemon index.js",
+    "test": "jest",
+    "test:suggestions": "node scripts/test-suggestions.js",
+    "reseed:kb": "node scripts/reseed-kb-suggestions.js",
+    "test:suggestion-prefixes": "node scripts/test-suggestion-prefixes.js"
+  },
+  "keywords": [
+    "ai",
+    "chatbot",
+    "llm",
+    "rag",
+    "streaming"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@andresaya/edge-tts": "^1.8.0",
+    "@anthropic-ai/sdk": "^0.9.1",
+    "@aws-sdk/client-cloudwatch": "^3.980.0",
+    "@aws-sdk/client-s3": "^3.974.0",
+    "@aws-sdk/s3-request-presigner": "^3.974.0",
+    "@google-cloud/text-to-speech": "^5.0.0",
+    "@napi-rs/canvas": "^0.1.88",
+    "@qdrant/js-client-rest": "^1.16.2",
+    "axios": "^1.6.2",
+    "bcryptjs": "^3.0.3",
+    "bull": "^4.11.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.1.5",
+    "firebase-admin": "^13.6.0",
+    "helmet": "^8.1.0",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.11.0",
+    "mongoose": "^7.6.3",
+    "multer": "^2.0.2",
+    "node-cron": "^3.0.0",
+    "openai": "^4.20.1",
+    "pdf-parse": "^2.4.5",
+    "react-toastify": "^11.0.5",
+    "redis": "^4.6.10",
+    "resend": "^6.7.0",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "winston-cloudwatch": "^6.3.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1"
+  },
+  "overrides": {
+    "fast-xml-parser": "5.3.4"
+  }
+}

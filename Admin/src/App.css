@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Amarnath:wght@300;400;500;700&display=swap');
+@import "tailwindcss";
+
+/* Blue/Teal Dashboard Theme Color Palette */
+@theme {
+  /* Primary Colors - Blue Theme */
+  --color-primary: #2563eb;
+  --color-primary-dark: #1e40af;
+  --color-secondary: #0ea5e9;
+  --color-teal: #14b8a6;
+  --color-info: #06b6d4;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-light: #e0f2fe;
+  --color-dark: #1e293b;
+  --color-sidebar: #1e3a8a;
+  --color-sidebar-dark: #1e40af;
+}
+
+body {
+  font-family: 'Amarnath', sans-serif;
+  background-color: #e0f2fe;
+}
+
+/* Desktop-specific improvements */
+@media (min-width: 768px) {
+  /* Better table container for desktop */
+  .table-container {
+    overflow-x: auto;
+    border-radius: 1rem;
+  }
+  
+  /* Enhanced table styling for desktop */
+  .table-container table {
+    min-width: 100%;
+  }
+  
+  /* Better line clamp for desktop */
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+  /* Ensure tables are scrollable on mobile */
+  .table-container {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Improve touch targets */
+  button, a, input, select {
+    min-height: 44px;
+  }
+  
+  /* Better spacing for mobile */
+  .mobile-padding {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  /* Fix dropdown z-index stacking in mobile */
+  .filter-dropdown {
+    position: relative;
+    z-index: 50;
+  }
+  
+  .filter-dropdown:last-child {
+    z-index: 51;
+  }
+  
+  /* Hide scrollbars on mobile for better UX */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

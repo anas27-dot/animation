@@ -1,0 +1,155 @@
+/* Markdown Styles */
+.prose {
+  color: inherit;
+  font-size: inherit;
+}
+
+.prose p {
+  margin: 0.5em 0;
+  font-size: inherit;
+}
+
+.prose p:first-child {
+  margin-top: 0;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+.prose strong {
+  font-weight: 700;
+  color: inherit;
+  font-size: inherit;
+}
+
+.prose em {
+  font-style: italic;
+  font-size: inherit;
+}
+
+.prose code {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.prose pre {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+  font-size: inherit;
+}
+
+.prose li {
+  margin: 0.25em 0;
+  font-size: inherit;
+}
+
+.prose a {
+  color: #3a2d9c;
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.prose a:hover {
+  color: #017977;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-weight: 700;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  color: inherit;
+  font-size: inherit;
+}
+
+.prose blockquote {
+  border-left: 4px solid #3a2d9c;
+  padding-left: 1em;
+  margin: 0.75em 0;
+  font-style: italic;
+  color: inherit;
+  opacity: 0.9;
+  font-size: inherit;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: inherit;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 0.5em;
+  text-align: left;
+  font-size: inherit;
+}
+
+.prose th {
+  background-color: rgba(0, 0, 0, 0.05);
+  font-weight: 700;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 1em 0;
+}
+
+/* Prose Invert (for dark backgrounds) */
+.prose-invert code {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.prose-invert pre {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.prose-invert a {
+  color: #a78bfa;
+}
+
+.prose-invert a:hover {
+  color: #c4b5fd;
+}
+
+.prose-invert blockquote {
+  border-left-color: #a78bfa;
+}
+
+.prose-invert th,
+.prose-invert td {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.prose-invert th {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.prose-invert hr {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}

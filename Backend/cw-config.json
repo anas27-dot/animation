@@ -1,0 +1,48 @@
+{
+    "metrics": {
+        "metrics_collected": {
+            "cpu": {
+                "measurement": [
+                    "usage_active",
+                    "usage_user",
+                    "usage_system",
+                    "usage_iowait"
+                ],
+                "metrics_collection_interval": 60
+            },
+            "mem": {
+                "measurement": [
+                    "used",
+                    "available",
+                    "used_percent"
+                ],
+                "metrics_collection_interval": 60
+            },
+            "disk": {
+                "measurement": [
+                    "used_percent"
+                ],
+                "resources": [
+                    "/"
+                ],
+                "metrics_collection_interval": 60
+            },
+            "netstat": {
+                "measurement": [
+                    "tcp_established",
+                    "tcp_time_wait",
+                    "tcp_close_wait"
+                ],
+                "metrics_collection_interval": 60
+            }
+        },
+        "append_dimensions": {
+            "InstanceId": "${aws:InstanceId}"
+        },
+        "aggregation_dimensions": [
+            [
+                "InstanceId"
+            ]
+        ]
+    }
+}
