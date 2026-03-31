@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+@supports (min-height: 100dvh) {
+  html, body, #root {
+    min-height: 100dvh;
+  }
+}
+
+/* Rainbow border animation for bot messages */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.rainbow-border-animated {
+  position: relative;
+  isolation: isolate;
+}
+
+.rainbow-border-animated::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 1rem;
+  background: conic-gradient(
+    from var(--angle),
+    red,
+    orange,
+    yellow,
+    green,
+    cyan,
+    blue,
+    purple,
+    red
+  );
+  padding: 1px;
+  -webkit-mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  animation: rotate-border-fade 1.5s linear forwards;
+}
+
+@keyframes rotate-border-fade {
+  0% {
+    --angle: 0deg;
+    opacity: 1;
+  }
+  99% {
+    --angle: 360deg;
+    opacity: 1;
+  }
+  100% {
+    --angle: 360deg;
+    opacity: 0;
+  }
+}
+
+/* AI Table Styling for ChatGPT-like table rendering */
+.ai-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.ai-table th,
+.ai-table td {
+  border: 1px solid #e5e7eb;
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.ai-table th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+
