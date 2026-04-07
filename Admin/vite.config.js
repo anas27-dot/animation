@@ -13,14 +13,17 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          router: ['react-router-dom'],
-          ui: ['@headlessui/react', 'lucide-react'],
-          utils: ['axios', 'file-saver', 'react-toastify']
-        }
-      }
-    }
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('react-router')) return 'router';
+          if (id.includes('@headlessui') || id.includes('lucide-react')) return 'ui';
+          if (id.includes('axios') || id.includes('file-saver') || id.includes('react-toastify')) {
+            return 'utils';
+          }
+          if (id.includes('react-dom') || /node_modules\/react\//.test(id)) return 'vendor';
+        },
+      },
+    },
   },
   resolve: {
     alias: {
