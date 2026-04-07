@@ -21,6 +21,7 @@ const chatbotRoutes = require('./routes/chatbotRoutes');
 const leadCaptureRoutes = require('./routes/leadCaptureRoutes');
 const intelligentChatRoutes = require('./routes/intelligentChatRoutes');
 const translateRoutes = require('./routes/translateRoutes');
+const ttsRoutes = require('./routes/ttsRoutes');
 const authRoutes = require('./routes/authRoutes');
 const intentRoutes = require('./routes/intentRoutes');
 const handoffRoutes = require('./routes/handoffRoutes');
@@ -190,6 +191,7 @@ app.use(`${API_PREFIX}/leads`, leadCaptureRoutes);
 // Endpoint: POST /api/troika/intelligent-chat/stream
 app.use(`${API_PREFIX}/troika/intelligent-chat`, intelligentChatRoutes);
 app.use(`${API_PREFIX}/translate`, translateRoutes);
+app.use(`${API_PREFIX}/tts`, ttsRoutes);
 
 // Authentication routes (OTP)
 // Endpoints: GET /api/chatbot/:id/auth-config, POST /api/chatbot/auth/*

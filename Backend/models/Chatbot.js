@@ -135,6 +135,24 @@ const chatbotSchema = new mongoose.Schema(
           default: 'watermark',
         },
       },
+      // Skater Girl animation configuration
+      skater_girl: {
+        enabled: {
+          type: Boolean,
+          default: true,
+        },
+        messages: {
+          type: [String],
+          default: [
+            "Let's talk business 🤝",
+            "I've got answers 💡",
+            "24×7 at your service ⚡",
+            "Go on, test me! 😏",
+            "What can I solve? ✅",
+            "Psst... ask me! 🧠",
+          ],
+        },
+      },
       // Sidebar configuration
       sidebar: {
         enabled: {
@@ -476,23 +494,6 @@ const chatbotSchema = new mongoose.Schema(
           type: Number,
           default: 10,
         },
-      },
-      // Product Images Configuration (S3-based)
-      product_images: {
-        enabled: {
-          type: Boolean,
-          default: false,
-        },
-        main_keyword: {
-          type: String,
-          default: '',
-        },
-        images: [{
-          url: { type: String, required: true },
-          name: { type: String, default: '' },
-          keywords: [String],
-          uploadDate: { type: Date, default: Date.now }
-        }],
       },
       // Product Images Configuration (S3-based)
       product_images: {

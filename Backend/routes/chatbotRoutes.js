@@ -220,6 +220,7 @@ router.put('/:id/sidebar-config/social', authenticateJWT, chatbotController.upda
 router.put('/:id/sidebar-config/custom-nav', authenticateJWT, chatbotController.updateSidebarCustomNav);
 router.put('/:id/sidebar-config/user-dashboard', authenticateJWT, chatbotController.updateSidebarUserDashboard);
 router.put('/:id/sidebar-config/enabled', authenticateJWT, chatbotController.updateSidebarEnabled);
+router.put('/:id/ui-config/skater-girl', authenticateJWT, chatbotController.updateSkaterGirlConfig);
 
 router.put('/:id', chatbotController.updateChatbot);
 router.put('/edit/:id', chatbotController.updateChatbot); // Alias for frontend

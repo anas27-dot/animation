@@ -55,6 +55,7 @@ import {
   updateCallingToolConfig,
   getProductImagesUploadUrl,
   updateProductImagesConfig,
+  updateChatbotSkaterGirl,
 } from "../services/api";
 import { Image, Type, Loader2, MessageSquare, Phone, PhoneCall, Settings, Calendar, Mail, Plus, Edit2, Trash2, X, Share2, Sparkles, Heading, Navigation, Monitor, ArrowLeft, Eye, EyeOff, Search, Shield, Database, CheckCircle2 } from "lucide-react";
 
@@ -160,6 +161,18 @@ const ManageChatbotUIPage = () => {
     opacity: 10,
     style: "watermark",
   });
+
+  // Skater Girl configuration state
+  const [skaterGirlEnabled, setSkaterGirlEnabled] = useState(true);
+  const [skaterGirlMessages, setSkaterGirlMessages] = useState([
+    "Let's talk business 🤝",
+    "I've got answers 💡",
+    "24×7 at your service ⚡",
+    "Go on, test me! 😏",
+    "What can I solve? ✅",
+    "Psst... ask me! 🧠",
+  ]);
+  const [savingSkaterGirl, setSavingSkaterGirl] = useState(false);
 
   // Sidebar configuration state
   const [sidebarEnabled, setSidebarEnabled] = useState(false);
@@ -986,6 +999,13 @@ const ManageChatbotUIPage = () => {
         opacity: typeof cb.opacity === "number" ? cb.opacity : 10,
         style: ["cover", "watermark", "pattern"].includes(cb.style) ? cb.style : "watermark",
       });
+
+      // Load skater girl config
+      const sg = config.skater_girl || settings.skater_girl || {};
+      setSkaterGirlEnabled(sg.enabled !== false);
+      if (Array.isArray(sg.messages) && sg.messages.length > 0) {
+        setSkaterGirlMessages(sg.messages);
+      }
 
       // Find and set selected chatbot details
       const chatbot = chatbots.find(c => c._id === chatbotId);
@@ -2819,6 +2839,16 @@ const ManageChatbotUIPage = () => {
                       <Image className="h-4 w-4 mr-2" />
                       Product Images
                     </button>
+                    <button
+                      onClick={() => setActiveSection("skater-girl")}
+                      className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all ${activeSection === "skater-girl"
+                        ? "bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white shadow-md"
+                        : "bg-white text-gray-700 border border-gray-300 hover:border-pink-500"
+                        }`}
+                    >
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Skater Girl
+                    </button>
                   </div>
                 </div>
 
@@ -3021,6 +3051,109 @@ const ManageChatbotUIPage = () => {
                         )}
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Skater Girl Animation Section */}
+                {activeSection === "skater-girl" && (
+                  <div className="bg-white rounded-xl shadow-lg p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center">
+                        <Sparkles className="h-6 w-6 text-pink-600 mr-2" />
+                        <h2 className="text-xl font-semibold text-gray-800">Skater Girl Animation</h2>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <span className="text-sm font-medium text-gray-700">Enable Animation</span>
+                        <button
+                          onClick={() => setSkaterGirlEnabled(!skaterGirlEnabled)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${skaterGirlEnabled ? "bg-pink-600" : "bg-gray-300"} cursor-pointer`}
+                        >
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${skaterGirlEnabled ? "translate-x-6" : "translate-x-1"}`} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-gray-500 mb-6">
+                      The skater girl appears on the welcome screen and shows rotating speech bubble messages. You can enable/disable the animation and customize the messages below.
+                    </p>
+
+                    <div className="mb-6">
+                      <label className="block text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">
+                        Speech Bubble Messages
+                      </label>
+                      <p className="text-xs text-gray-500 mb-4">
+                        These messages rotate in the speech bubble above the skater girl's head. Add, edit, or remove messages.
+                      </p>
+
+                      <div className="space-y-3">
+                        {skaterGirlMessages.map((msg, index) => (
+                          <div key={index} className="flex items-center gap-3">
+                            <span className="text-xs font-bold text-gray-400 w-6 text-center">{index + 1}</span>
+                            <input
+                              type="text"
+                              value={msg}
+                              onChange={(e) => {
+                                const updated = [...skaterGirlMessages];
+                                updated[index] = e.target.value;
+                                setSkaterGirlMessages(updated);
+                              }}
+                              placeholder="Enter a message..."
+                              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-gray-700"
+                            />
+                            <button
+                              onClick={() => {
+                                const updated = skaterGirlMessages.filter((_, i) => i !== index);
+                                setSkaterGirlMessages(updated);
+                              }}
+                              disabled={skaterGirlMessages.length <= 1}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => setSkaterGirlMessages([...skaterGirlMessages, ""])}
+                        className="mt-4 flex items-center px-4 py-2 text-sm font-medium text-pink-700 bg-pink-50 border border-pink-200 rounded-lg hover:bg-pink-100 transition-colors"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Message
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={async () => {
+                        if (!selectedChatbotId) return;
+                        setSavingSkaterGirl(true);
+                        try {
+                          const filtered = skaterGirlMessages.filter(m => m.trim());
+                          await updateChatbotSkaterGirl(selectedChatbotId, skaterGirlEnabled, filtered);
+                          setSkaterGirlMessages(filtered.length > 0 ? filtered : [""]);
+                          toast.success("Skater Girl settings saved!");
+                        } catch (error) {
+                          console.error("Error saving skater girl config:", error);
+                          toast.error("Failed to save Skater Girl settings");
+                        } finally {
+                          setSavingSkaterGirl(false);
+                        }
+                      }}
+                      disabled={savingSkaterGirl}
+                      className="w-full md:w-auto px-6 py-3 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center"
+                    >
+                      {savingSkaterGirl ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-5 w-5 mr-2" />
+                          Save Skater Girl Settings
+                        </>
+                      )}
+                    </button>
                   </div>
                 )}
 

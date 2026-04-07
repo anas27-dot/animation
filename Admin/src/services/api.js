@@ -626,6 +626,14 @@ export const updateChatbotSidebarEmail = (chatbotId, enabled, mode, text) => {
   });
 };
 
+// Skater Girl Configuration
+export const updateChatbotSkaterGirl = (chatbotId, enabled, messages) => {
+  return api.put(`/chatbot/${chatbotId}/ui-config/skater-girl`, {
+    enabled,
+    messages,
+  });
+};
+
 // Embed Script API endpoint
 export const getEmbedScript = (chatbotId) => {
   return api.get(`/chatbot/${chatbotId}/embed-script`);

@@ -419,10 +419,18 @@ async function getChatbotConfig(req, res) {
           branding_logo_url: chatbot.settings?.sidebar?.branding?.branding_logo_url || '',
           branding_logo_link: chatbot.settings?.sidebar?.branding?.branding_logo_link || '',
         },
+        whatsapp_enabled: chatbot.settings?.sidebar?.whatsapp?.enabled === true,
         whatsapp_number: (chatbot.settings?.sidebar?.whatsapp_number || chatbot.settings?.sidebar?.whatsapp?.url || '').replace('https://wa.me/', '').replace('http://wa.me/', ''),
         whatsapp_text: chatbot.settings?.sidebar?.whatsapp?.text || 'WhatsApp',
+        call_enabled: chatbot.settings?.sidebar?.call?.enabled === true,
         call_number: (chatbot.settings?.sidebar?.call_number || chatbot.settings?.sidebar?.call?.number || ''),
         call_text: chatbot.settings?.sidebar?.call?.text || 'Call Us',
+        skater_girl: {
+          enabled: chatbot.settings?.skater_girl?.enabled !== false,
+          messages: Array.isArray(chatbot.settings?.skater_girl?.messages) && chatbot.settings.skater_girl.messages.length > 0
+            ? chatbot.settings.skater_girl.messages
+            : ["Let's talk business 🤝", "I've got answers 💡", "24×7 at your service ⚡", "Go on, test me! 😏", "What can I solve? ✅", "Psst... ask me! 🧠"],
+        },
         chat_background: {
           enabled: chatbot.settings?.chat_background?.enabled === true,
           image_url: chatbot.settings?.chat_background?.image_url || '',
@@ -1796,6 +1804,29 @@ async function updateProductImagesConfig(req, res) {
 }
 
 
+// Skater Girl Configuration
+async function updateSkaterGirlConfig(req, res) {
+  try {
+    const { id } = req.params;
+    const { enabled, messages } = req.body;
+
+    const chatbot = await Chatbot.findById(id);
+    if (!chatbot) return res.status(404).json({ error: 'Chatbot not found' });
+
+    if (!chatbot.settings) chatbot.settings = {};
+    chatbot.settings.skater_girl = {
+      enabled: enabled !== false,
+      messages: Array.isArray(messages) ? messages.filter(m => typeof m === 'string' && m.trim()) : [],
+    };
+
+    await chatbot.save();
+    res.json({ success: true, message: 'Skater Girl config updated', skater_girl: chatbot.settings.skater_girl });
+  } catch (error) {
+    logger.error('Update skater girl config error:', error);
+    res.status(500).json({ error: 'Failed to update skater girl config' });
+  }
+}
+
 module.exports = {
   getAllChatbots,
   getChatbot,
@@ -1839,5 +1870,6 @@ module.exports = {
   updateChatBackgroundConfig,
   uploadChatBackgroundFile,
   getChatBackgroundUploadUrl,
+  updateSkaterGirlConfig,
 };
 
