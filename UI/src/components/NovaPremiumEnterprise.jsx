@@ -7991,16 +7991,16 @@ export default function NovaPremiumEnterprise() {
         >
           <div className="flex min-h-0 flex-1 flex-col">
             <div
-              className={`relative shrink-0 px-6 py-3 min-h-[76.8px] flex flex-col justify-center border-b ${t.borderLight}`}
+              className={`relative shrink-0 px-4 py-4 border-b ${t.borderLight}`}
             >
-              <div className="relative flex items-center justify-between mb-0">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
                   {chatbotConfig?.sidebar_branding?.enabled && chatbotConfig?.sidebar_branding?.branding_logo_url ? (
                     <a
                       href={chatbotConfig.sidebar_branding.branding_logo_link || '#'}
                       target={chatbotConfig.sidebar_branding.branding_logo_link ? '_blank' : undefined}
                       rel={chatbotConfig.sidebar_branding.branding_logo_link ? 'noopener noreferrer' : undefined}
-                      className="block"
+                      className="block flex-shrink-0"
                     >
                       <img
                         src={chatbotConfig.sidebar_branding.branding_logo_url}
@@ -8012,35 +8012,32 @@ export default function NovaPremiumEnterprise() {
                       />
                     </a>
                   ) : (
-                    <img src={OmniAgentLogo} alt="OmniAgent" className="w-10 h-10 rounded-xl object-cover" />
+                    <img src={OmniAgentLogo} alt="OmniAgent" className="w-10 h-10 rounded-xl object-cover flex-shrink-0" />
                   )}
-                  <div>
-                    <h1 className={`font-semibold ${t.text}`}>
+                  <div className="min-w-0">
+                    <h1 className={`font-semibold text-sm ${t.text} truncate`}>
                       <T>{chatbotConfig?.sidebar_branding?.branding_company || 'Troika Tech'}</T>
                     </h1>
-                    <div className="flex items-center gap-2">
-                      <p className={`text-xs ${t.textMuted}`}>
-                        {(() => {
-                          const shouldShowAuth = chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT;
-                          if (shouldShowAuth) console.log('🔐 [AUTH] Showing sidebar auth required:', { authEnabled: chatbotConfig?.authentication_enabled, authenticated: isAuthenticated, count: messageCount });
-                          return shouldShowAuth ? <T>Authentication Required</T> : <T>{chatbotConfig?.sidebar_branding?.branding_text || 'Enterprise'}</T>;
-                        })()}
-                      </p>
-                    </div>
+                    <p className={`text-xs ${t.textMuted} truncate`}>
+                      {(() => {
+                        const shouldShowAuth = chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT;
+                        return shouldShowAuth ? <T>Authentication Required</T> : <T>{chatbotConfig?.sidebar_branding?.branding_text || 'Enterprise'}</T>;
+                      })()}
+                    </p>
                   </div>
                 </div>
                 <button
                   onClick={() => setSidebarOpen(false)}
-                  className="sidebar-close-btn md:hidden"
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 transition-colors flex-shrink-0 ml-3 md:hidden"
                   aria-label="Close sidebar"
                 >
-                  <X className="w-5 h-5 text-gray-600" />
+                  <X className="w-4 h-4 text-gray-500" />
                 </button>
               </div>
             </div>
 
             <div className="shrink-0">
-              <div className="p-4 pb-2">
+              <div className="px-4 pt-4 pb-3">
                 <motion.button
                   type="button"
                   className={`new-conversation-premium relative w-full overflow-hidden py-3 text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 ${hasFullAccess
@@ -8150,9 +8147,9 @@ export default function NovaPremiumEnterprise() {
               </div>
               )}
               {resolvedHeaderNavItems.length > 0 && (
-                <div className="mb-4 px-4 md:hidden">
-                  <p className={`mb-2 text-xs font-semibold uppercase tracking-wider ${t.textMuted}`}><T>Company</T></p>
-                  <div className="flex flex-col gap-1">
+                <div className="mb-4 px-4 pt-3 border-t border-slate-100 md:hidden">
+                  <p className={`mb-2 text-[10px] font-semibold uppercase tracking-wider ${t.textMuted}`}><T>Main Menu</T></p>
+                  <div className="flex flex-col [&>button:last-child]:border-b-0">
                     {resolvedHeaderNavItems.map(({ label, prompt }, idx) => (
                       <button
                         key={`sidebar-nav-${label}-${idx}`}
@@ -8162,7 +8159,7 @@ export default function NovaPremiumEnterprise() {
                           handleHeaderNavKnowledge(prompt, label);
                           setSidebarOpen(false);
                         }}
-                        className={`w-full rounded-xl border ${t.border} px-3 py-2.5 text-left text-sm font-semibold transition-colors ${t.text} ${t.cardHover} disabled:pointer-events-none disabled:opacity-45`}
+                        className={`w-full px-1 py-2 text-left text-[13px] font-semibold transition-colors ${t.text} ${t.cardHover} border-b ${t.borderLight} disabled:pointer-events-none disabled:opacity-45`}
                       >
                         <T>{label}</T>
                       </button>
