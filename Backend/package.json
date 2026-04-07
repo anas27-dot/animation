@@ -29,7 +29,6 @@
     "@aws-sdk/s3-request-presigner": "^3.974.0",
     "@google-cloud/text-to-speech": "^5.0.0",
     "@napi-rs/canvas": "^0.1.88",
-    "@qdrant/js-client-rest": "^1.16.2",
     "axios": "^1.6.2",
     "bcryptjs": "^3.0.3",
     "bull": "^4.11.5",

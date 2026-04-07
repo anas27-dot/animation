@@ -186,14 +186,14 @@ async function buildPrompt({
       logger.warn(`Knowledge base provided but all chunks were empty or invalid`);
     }
 
-    // 2. FETCH LONG-TERM MEMORY (QDRANT + DB)
+    // 2. FETCH LONG-TERM MEMORY (MongoDB + PhoneUser fallback)
     let userMemoryContext = '';
     let knownUserName = null;
     let knownBusiness = null;
 
     if (userId && query && userId !== 'guest' && !userId.startsWith('guest_')) {
       try {
-        // 🚀 CRITICAL: Retrieve Memory from Qdrant (phone = identity anchor)
+        // 🚀 CRITICAL: Long-term facts from MongoDB (phone = identity anchor)
         userMemoryContext = await retrieveUserContext(userId, query, chatbotId, phone);
 
         if (userMemoryContext && userMemoryContext.trim().length > 0) {
@@ -211,7 +211,7 @@ async function buildPrompt({
           if (userMemoryContext.toLowerCase().includes('showroom')) knownBusiness = "Car Showroom Owner";
         }
 
-        // DB Fallback for Name if Qdrant didn't have it
+        // DB Fallback for Name if memory didn't have it
         if (!knownUserName) {
           try {
             const dbUser = await PhoneUser.findById(userId);

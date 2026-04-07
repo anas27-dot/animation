@@ -1,56 +1,53 @@
-const { qdrant, COLLECTION_NAME } = require('../config/qdrant');
-const { v4: uuidv4 } = require('uuid');
 const OpenAI = require('openai');
 const logger = require('../config/logging');
+const ChatMemoryFact = require('../models/ChatMemoryFact');
 
 const getOpenAI = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// 1. Initialize Qdrant
-const qdrantClient = qdrant;
-const VECTOR_SIZE = 1536;
-
-async function ensureCollection() {
-  try {
-    const response = await qdrantClient.getCollections();
-    const exists = response.collections.some(c => c.name === COLLECTION_NAME);
-
-    if (!exists) {
-      console.log(`⚙️ [Qdrant] Creating collection: ${COLLECTION_NAME}...`);
-      await qdrantClient.createCollection(COLLECTION_NAME, {
-        vectors: { size: VECTOR_SIZE, distance: 'Cosine' }
-      });
-      await qdrantClient.createPayloadIndex(COLLECTION_NAME, { field_name: "userId", field_schema: "keyword" });
-      await qdrantClient.createPayloadIndex(COLLECTION_NAME, { field_name: "chatbotId", field_schema: "keyword" });
-      console.log("✅ [Qdrant] Collection & Indexes ready.");
-    }
-  } catch (err) {
-    console.error("❌ [Qdrant] Init Error:", err.message);
+function cosineSimilarity(a, b) {
+  if (!a?.length || !b?.length || a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
   }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
 }
-ensureCollection();
+
+async function maxSimilarityForUser(embedding, userId, chatbotIdFilter) {
+  const q = { userId };
+  if (chatbotIdFilter !== undefined) q.chatbotId = chatbotIdFilter;
+  const docs = await ChatMemoryFact.find(q).select('embedding').lean();
+  let best = 0;
+  for (const d of docs) {
+    const s = cosineSimilarity(embedding, d.embedding);
+    if (s > best) best = s;
+  }
+  return best;
+}
 
 /**
  * Helper to resolve the most permanent identity (Device-Agnostic Memory)
- * If we have a phone, that is the PERMANENT ID across all devices
  */
 const getIdentityId = (userId, phone) => {
   if (phone) return String(phone).replace(/\D/g, '');
   return String(userId);
 };
 
-/**
- * Helper: Strict Fact Extraction
- */
 async function extractFactsFromChat(history) {
   try {
     const openai = getOpenAI();
     const chatText = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: 'gpt-4o-mini',
       messages: [
         {
-          role: "system",
+          role: 'system',
           content: `You are a Fact Extraction AI. Build a profile of the USER.
 
           🚨 STRICT RULES FOR EXTRACTION:
@@ -65,25 +62,22 @@ async function extractFactsFromChat(history) {
 
           3. **Only Explicit Facts:** Name, Contact, Business Type, Budget, Constraints, Location.
 
-          Output JSON: { "facts": ["User's name is X", "User runs a X business"] }`
+          Output JSON: { "facts": ["User's name is X", "User runs a X business"] }`,
         },
-        { role: "user", content: `CONVERSATION:\n${chatText}` }
+        { role: 'user', content: `CONVERSATION:\n${chatText}` },
       ],
       temperature: 0,
-      response_format: { type: "json_object" }
+      response_format: { type: 'json_object' },
     });
 
     const result = JSON.parse(response.choices[0].message.content);
     return result.facts || [];
   } catch (e) {
-    logger.error("Fact Extraction Failed", e);
+    logger.error('Fact Extraction Failed', e);
     return [];
   }
 }
 
-/**
- * 🧠 2. CONSOLIDATE MEMORY (Save) — Phone-Centric: userId in Qdrant = phone when available (Device-Agnostic)
- */
 async function consolidateChatToMemory(userId, chatbotId, sessionId, chatHistory, phone = null) {
   try {
     if (!chatHistory || chatHistory.length === 0) return;
@@ -91,160 +85,123 @@ async function consolidateChatToMemory(userId, chatbotId, sessionId, chatHistory
     if (!Array.isArray(facts) || facts.length === 0) return;
 
     const identityId = getIdentityId(userId, phone);
-
     const openai = getOpenAI();
-    const pointsToSave = [];
+    const toInsert = [];
 
     for (const fact of facts) {
       if (!fact || fact.trim().length < 5) continue;
 
-      const response = await openai.embeddings.create({ model: "text-embedding-3-small", input: fact.trim() });
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: fact.trim(),
+      });
       const vector = response.data[0].embedding;
 
-      // 🎯 SEARCH for existing similar facts for THIS user
-      const existingFacts = await qdrantClient.search(COLLECTION_NAME, {
-        vector: vector,
-        limit: 1,
-        filter: {
-          must: [{ key: "userId", match: { value: identityId } }]
-        }
-      });
-
-      // 🎯 DEDUPLICATION THRESHOLD: 0.85 — If 85% similar to an old one, don't save it
-      if (existingFacts.length > 0 && existingFacts[0].score > 0.85) {
-        console.log(`♻️ [Memory] Fact already known: "${fact}" (Score: ${existingFacts[0].score})`);
+      const best = await maxSimilarityForUser(vector, identityId);
+      if (best > 0.85) {
+        logger.info(`♻️ [Memory] Fact already known: "${fact}" (Score: ${best})`);
         continue;
       }
 
-      pointsToSave.push({
-        id: uuidv4(),
-        vector: vector,
-        payload: {
-          userId: identityId,
-          chatbotId: chatbotId.toString(),
-          content: fact.trim(),
-          sourceSessionId: sessionId,
-          phone: phone ? identityId : null,
-          is_authenticated: !!phone,
-          createdAt: new Date().toISOString()
-        }
+      toInsert.push({
+        userId: identityId,
+        chatbotId: chatbotId.toString(),
+        content: fact.trim(),
+        embedding: vector,
+        sourceSessionId: sessionId,
+        phone: phone ? identityId : null,
+        is_authenticated: !!phone,
+        createdAt: new Date(),
       });
     }
 
-    if (pointsToSave.length > 0) {
-      await qdrantClient.upsert(COLLECTION_NAME, { wait: true, points: pointsToSave });
-      logger.info(`✅ [Qdrant] Saved ${pointsToSave.length} new facts.`);
+    if (toInsert.length > 0) {
+      await ChatMemoryFact.insertMany(toInsert);
+      logger.info(`✅ [Memory] Saved ${toInsert.length} new facts (MongoDB).`);
     }
   } catch (error) {
     logger.error(`❌ [Memory] Save Error: ${error.message}`);
   }
 }
 
-/**
- * 🧠 3. RETRIEVE MEMORY (Always On) — Phone-Centric: search by identityId (phone when authenticated)
- */
 async function retrieveUserContext(userId, userQuery, chatbotId, phone = null) {
   try {
     const identityId = getIdentityId(userId, phone);
-
     const openai = getOpenAI();
     let searchInput = userQuery;
 
-    // Greeting Override
-    const isGreeting = /^(hello|hi|hey|good\s*(morning|afternoon|evening)|greetings|start|yo|ola)/i.test(userQuery.trim());
+    const isGreeting = /^(hello|hi|hey|good\s*(morning|afternoon|evening)|greetings|start|yo|ola)/i.test(
+      userQuery.trim(),
+    );
 
     if (isGreeting || userQuery.trim().length < 5) {
-      logger.info("🔍 [Memory] Greeting Detected - Fetching Full Profile...");
+      logger.info('🔍 [Memory] Greeting Detected - Fetching Full Profile...');
       searchInput = "User's name, business type, industry, location, budget, contact info";
     } else {
-      // 🚀 ALWAYS BOOST CONTEXT
-      // Even for "tell me about services", we check if we know the user's business type
       searchInput = `User context for: "${userQuery}". User's name, business, location.`;
     }
 
     const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: searchInput
+      model: 'text-embedding-3-small',
+      input: searchInput,
     });
+    const queryVec = response.data[0].embedding;
 
-    const searchResult = await qdrantClient.search(COLLECTION_NAME, {
-      vector: response.data[0].embedding,
-      limit: 5,
-      filter: {
-        must: [
-          { key: "userId", match: { value: identityId } },
-          { key: "chatbotId", match: { value: chatbotId.toString() } }
-        ]
-      }
-    });
+    const docs = await ChatMemoryFact.find({
+      userId: identityId,
+      chatbotId: chatbotId.toString(),
+    })
+      .select('content embedding')
+      .lean();
 
-    // 🚀 UNIFIED THRESHOLD: 0.22
-    // This is low enough to catch "Tell me about services" -> "User runs a coaching business" (similarity ~0.25)
-    // But high enough to filter total nonsense.
     const threshold = 0.22;
-    const validMatches = searchResult.filter(m => m.score > threshold);
+    const scored = docs
+      .map(d => ({ content: d.content, score: cosineSimilarity(queryVec, d.embedding) }))
+      .filter(m => m.score > threshold)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
 
-    if (validMatches.length === 0) return "";
+    if (scored.length === 0) return '';
 
-    logger.info(`✅ [Memory] Retrieved ${validMatches.length} facts.`);
+    logger.info(`✅ [Memory] Retrieved ${scored.length} facts (MongoDB).`);
 
-    return `USER LONG-TERM CONTEXT:\n${validMatches
-      .map(m => `- ${m.payload.content}`)
-      .join("\n")}`;
-
+    return `USER LONG-TERM CONTEXT:\n${scored.map(m => `- ${m.content}`).join('\n')}`;
   } catch (err) {
-    logger.error(`❌ [Qdrant] Retrieve Error: ${err.message}`);
-    return "";
+    logger.error(`❌ [Memory] Retrieve Error: ${err.message}`);
+    return '';
   }
 }
 
-/**
- * 🚀 4. SAVE EXPLICIT MEMORY (Auth) — Phone-Centric: use identityId for consistency
- */
 async function saveExplicitMemory(userId, chatbotId, fact, phone = null) {
   try {
     const identityId = getIdentityId(userId, phone);
-
     const openai = getOpenAI();
     const cleanFact = fact.trim();
     if (!cleanFact) return;
 
-    const response = await openai.embeddings.create({ model: "text-embedding-3-small", input: cleanFact });
+    const response = await openai.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: cleanFact,
+    });
     const vector = response.data[0].embedding;
 
-    // Deduplicate
-    const duplicates = await qdrantClient.search(COLLECTION_NAME, {
-      vector: vector,
-      limit: 1,
-      filter: {
-        must: [
-          { key: "userId", match: { value: identityId } },
-          { key: "chatbotId", match: { value: chatbotId.toString() } }
-        ]
-      }
-    });
-
-    if (duplicates.length > 0 && duplicates[0].score > 0.90) {
+    const best = await maxSimilarityForUser(vector, identityId, chatbotId.toString());
+    if (best > 0.9) {
       logger.info(`♻️ [Memory] Explicit fact exists: "${cleanFact}" (Skipping)`);
       return;
     }
 
-    const payload = {
-        userId: identityId,
-        chatbotId: chatbotId.toString(),
-        content: cleanFact,
-        sourceSessionId: "system_auth_event",
-        phone: phone ? String(phone).replace(/\D/g, '') : null,
-        is_authenticated: !!phone,
-        createdAt: new Date().toISOString()
-    };
-
-    await qdrantClient.upsert(COLLECTION_NAME, {
-      wait: true,
-      points: [{ id: uuidv4(), vector: vector, payload: payload }]
+    await ChatMemoryFact.create({
+      userId: identityId,
+      chatbotId: chatbotId.toString(),
+      content: cleanFact,
+      embedding: vector,
+      sourceSessionId: 'system_auth_event',
+      phone: phone ? String(phone).replace(/\D/g, '') : null,
+      is_authenticated: !!phone,
+      createdAt: new Date(),
     });
     logger.info(`✅ [Memory] Explicit fact saved: "${cleanFact}"`);
-
   } catch (error) {
     logger.error(`❌ [Memory] Explicit Save Error: ${error.message}`);
   }
@@ -255,5 +212,5 @@ module.exports = {
   retrieveUserContext,
   saveExplicitMemory,
   getUserMemoryStats: async () => ({}),
-  cleanupOldMemories: async () => ({})
+  cleanupOldMemories: async () => ({}),
 };
