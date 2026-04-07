@@ -32,6 +32,18 @@ const ENV_ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
 // Combine them
 const GLOBAL_ALLOWED_ORIGINS = [...new Set([...HARDCODED_ALLOWED_ORIGINS, ...ENV_ALLOWED_ORIGINS])];
 
+/** Prefer originalUrl — req.path can be wrong after static/rewrite middleware on some hosts. */
+function getRequestPath(req) {
+  const raw = (req.originalUrl || req.url || req.path || '').toString();
+  return raw.split('?')[0] || '';
+}
+
+/** Hosted OmniAgent dashboards on Render (always allow for API + CORS). */
+function isOmniAgentRenderOrigin(cleanOrigin) {
+  if (!cleanOrigin) return false;
+  return /^https:\/\/(omniagentadmin|omniagentui)\.onrender\.com$/i.test(cleanOrigin);
+}
+
 function normalizeOrigin(origin) {
   if (!origin || typeof origin !== 'string') return null;
   const trimmed = origin.trim().replace(/\/$/, '').toLowerCase();
@@ -72,22 +84,23 @@ function isDashboardApiPath(p) {
 
 async function dynamicCors(req, res, next) {
   try {
+    const pathOnly = getRequestPath(req);
+
+    // Dashboard routes use dashboardCors on the router — never apply chatbot whitelist here.
+    if (isDashboardApiPath(pathOnly)) {
+      return next();
+    }
+
     const origin = req.headers.origin || req.headers.referer;
 
     // If no origin (server-to-server, Postman, curl), pass through
     if (!origin) return next();
 
-    const pathOnly =
-      req.path && req.path.length > 0 ? req.path : (req.originalUrl || '').split('?')[0];
-    if (isDashboardApiPath(pathOnly)) {
-      return next();
-    }
-
     const cleanOrigin = normalizeOrigin(origin);
 
     // Safety check: if origin parsing failed
     if (!cleanOrigin) {
-      if (req.path === '/' || req.path === '/health') return next();
+      if (pathOnly === '/' || pathOnly === '/health') return next();
       logger.warn(`[CORS] Blocked invalid origin: ${origin}`);
       return res.status(403).json({ error: 'CORS Policy: Invalid origin' });
     }
@@ -104,7 +117,7 @@ async function dynamicCors(req, res, next) {
     const chatbotId = req.query.chatbotId ||
       (req.body && typeof req.body === 'object' ? req.body.chatbotId : null) ||
       req.headers['x-chatbot-id'] ||
-      extractChatbotIdFromPath(req.path);
+      extractChatbotIdFromPath(pathOnly);
 
     // 1. Start with Global Whitelist
     let allowedOrigins = [...GLOBAL_ALLOWED_ORIGINS];
@@ -144,6 +157,10 @@ async function dynamicCors(req, res, next) {
       return cors({ origin: true, credentials: true })(req, res, next);
     }
 
+    if (isOmniAgentRenderOrigin(cleanOrigin)) {
+      return cors({ origin: true, credentials: true })(req, res, next);
+    }
+
     // 4. DEVELOPMENT MODE FALLBACK
     // If we are in dev mode and it's an OPTIONS request, or no origins are configured, allow all
     if (process.env.NODE_ENV !== 'production' && (req.method === 'OPTIONS' || uniqueAllowed.length === 0)) {
@@ -157,7 +174,7 @@ async function dynamicCors(req, res, next) {
     }
 
     // BLOCK
-    logger.warn(`🚫 [CORS] Blocked ${req.method} ${req.path} from: ${cleanOrigin}. ChatbotId: ${chatbotId || 'N/A'}`);
+    logger.warn(`🚫 [CORS] Blocked ${req.method} ${pathOnly} from: ${cleanOrigin}. ChatbotId: ${chatbotId || 'N/A'}`);
     if (chatbotId) {
       logger.warn(`📜 [CORS] Allowed for chatbot ${chatbotId}: ${JSON.stringify(uniqueAllowed)}`);
     }
@@ -169,12 +186,12 @@ async function dynamicCors(req, res, next) {
     return res.status(403).json({
       error: 'CORS Policy: Origin not allowed',
       detail: `The origin '${cleanOrigin}' is not whitelisted for Chatbot ID '${chatbotId || 'N/A'}'.`,
-      path: req.path,
+      path: pathOnly,
       method: req.method,
       suggestion: 'Add this domain to the Allowed Domains in the Admin Dashboard.'
     });
   } catch (error) {
-    const chatbotId = req.query?.chatbotId || req.body?.chatbotId || req.headers?.['x-chatbot-id'] || extractChatbotIdFromPath(req.path);
+    const chatbotId = req.query?.chatbotId || req.body?.chatbotId || req.headers?.['x-chatbot-id'] || extractChatbotIdFromPath(getRequestPath(req));
     logger.error(`[CORS] Critical Middleware Failure: ${error.message}`, {
       stack: error.stack,
       url: req.url,

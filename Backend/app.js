@@ -90,13 +90,21 @@ const dashboardOriginsNormalized = new Set(
   dashboardOrigins.map((o) => normalizeDashboardOrigin(o)).filter(Boolean),
 );
 
+function isOmniAgentRenderDashboardOrigin(n) {
+  if (!n) return false;
+  return /^https:\/\/(omniagentadmin|omniagentui)\.onrender\.com$/.test(n);
+}
+
 const dashboardCorsOptions = {
   origin: (origin, callback) => {
     // allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
 
     const n = normalizeDashboardOrigin(origin);
-    if (n && dashboardOriginsNormalized.has(n)) {
+    if (
+      (n && dashboardOriginsNormalized.has(n)) ||
+      isOmniAgentRenderDashboardOrigin(n)
+    ) {
       callback(null, true);
     } else if (process.env.NODE_ENV !== 'production' && isLocalDashboardOrigin(origin)) {
       // Vite may use 5173, 5174, 5175, etc. — allow any localhost port in dev
