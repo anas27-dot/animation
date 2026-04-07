@@ -65,6 +65,8 @@ const dashboardOrigins = [
   'https://omniagent.0804.in',
   'https://admin-omniagent.0804.in',
   'https://omni-dashboard.0804.in',
+  'https://omniagentadmin.onrender.com',
+  'https://omniagentui.onrender.com',
   process.env.ADMIN_DASHBOARD_URL,
   process.env.USER_DASHBOARD_URL
 ].filter(Boolean);

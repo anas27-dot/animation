@@ -16,6 +16,8 @@ const HARDCODED_ALLOWED_ORIGINS = [
   'https://omniagent.0804.in',
   'https://admin-omniagent.0804.in',
   'https://omni-dashboard.0804.in',
+  'https://omniagentadmin.onrender.com',
+  'https://omniagentui.onrender.com',
   'https://nexxgen.0804.in',
   'https://yourswellness.0804.in',
   'https://kishorrane.0804.in',
