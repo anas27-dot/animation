@@ -5,10 +5,12 @@ export const useLive =
   (import.meta.env.PROD && import.meta.env.VITE_USE_LIVE_API !== "false");
 
 // Configuration for backend URLs
-// On Render: set VITE_API_BASE_URL to your API root including /api, e.g. https://your-api.onrender.com/api
+// Render: set VITE_API_BASE_URL in the Static Site env if your API host differs (must include /api).
+// Older Troika default was chat-api-v4.0804.in — OmniAgent Render uses omniagent-backend by default.
 const liveUrlEnv = import.meta.env.VITE_API_BASE_URL?.trim();
+const defaultLiveApi = "https://omniagent-backend.onrender.com/api";
 export const config = {
-  liveUrl: (liveUrlEnv || "https://chat-api-v4.0804.in/api").replace(/\/$/, ""),
+  liveUrl: (liveUrlEnv || defaultLiveApi).replace(/\/$/, ""),
   localUrl: "http://localhost:5000/api",
 };
 
