@@ -10,8 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "axios": "^1.13.2",
     "framer-motion": "^12.38.0",
+    "gsap": "^3.14.2",
+    "lottie-react": "^2.4.1",
     "lucide-react": "^0.562.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -20,7 +24,8 @@
     "react-toastify": "^11.0.5",
     "recharts": "^3.6.0",
     "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.28",

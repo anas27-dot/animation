@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence, LayoutGroup, useReducedMotion, useAnimationControls } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { FileText, Download, ExternalLink, BarChart3, TrendingUp, PieChart, Paperclip, X, Image as ImageIcon, User, LogOut, Search } from 'lucide-react';
 import { getSvgIcon } from '../services/svgIcons.jsx';
-import DropdownPortal from './DropdownPortal';
+import WelcomeBgCanvas from './WelcomeBgCanvas';
+import RobotGirlWidget from './RobotGirlWidget';
 import PDFAttachment from './PDFAttachment';
 import ChartMessage from './ChartMessage';
 import ImageAttachment from './ImageAttachment';
@@ -47,12 +48,20 @@ const API_CONFIG = {
   ENABLE_TTS: config.enableTTS,
 };
 
-/** Matches sidebar `sidebarPopTransition` stagger; keep in sync when changing sidebar intro. */
-const SIDEBAR_INTRO_STAGGER_SEC = 0.32;
+/** Shell + welcome entrance (ms from config-ready). Wired with `useAnimationControls` + `useEffect`. */
+const MOUNT_ENTRANCE_MS = {
+  sidebar: 100,
+  header: 350,
+  main: 500,
+  headline: 700,
+  phrases: 1100,
+  quickActions: 1400,
+};
+/** Composer card between headline and phrase line. */
+const MOUNT_ENTRANCE_COMPOSER_MS = 900;
 /** Wait after last sidebar item starts so spring motion can settle before welcome area animates. */
-const SIDEBAR_INTRO_SPRING_BUFFER_SEC = 0.85;
-/** Extra delay so User/Guest footer pops clearly after everything above it (not on the same beat as Recent). */
-const SIDEBAR_USER_FOOTER_EXTRA_DELAY_SEC = 0.44;
+/** Welcome main column stagger (typewriter → input → quick actions); keep in sync with chat-bg zoom effect below. */
+const WELCOME_INTRO_STAGGER_SEC = 0.26;
 /** Settle time after a welcome “pop” spring before chaining (matches welcomeSpring feel). */
 const CHAT_BG_WELCOME_ZOOM_SPRING_SETTLE_SEC = 0.72;
 /** Slow zoom-in on the hero BG after welcome pops finish (Ken Burns–style, not a snap). */
@@ -64,12 +73,25 @@ const CHAT_BG_WELCOME_ZOOM_IN_END_SCALE = 1.12;
  * a bit quicker when a long reply jump leaves us far behind (no hard step caps).
  */
 const CHAT_SCROLL_SMOOTH_EPS_PX = 0.65;
-const CHAT_SCROLL_ADAPTIVE_REF_PX = 400;
-const CHAT_STREAM_SCROLL_GAIN_MIN = 0.034;
-const CHAT_STREAM_SCROLL_GAIN_MAX = 0.132;
+/** Larger = react more slowly when far below (less “jump” during fast streams). */
+const CHAT_SCROLL_ADAPTIVE_REF_PX = 560;
+const CHAT_STREAM_SCROLL_GAIN_MIN = 0.017;
+const CHAT_STREAM_SCROLL_GAIN_MAX = 0.068;
 const CHAT_SCROLL_OTHER_GAIN_MIN = 0.085;
 const CHAT_SCROLL_OTHER_GAIN_MAX = 0.26;
-
+/** First welcome send: small lift from final slot reads as middle → bottom (not a long drop from top). */
+const USER_BUBBLE_FLYIN_INITIAL = {
+  opacity: 0.62,
+  y: '-9vh',
+  x: '-5vw',
+  scale: 0.94,
+};
+/** Slower tween; soft ease-out so it settles rather than falls. */
+const USER_BUBBLE_FLYIN_TRANSITION = {
+  type: 'tween',
+  duration: 2.45,
+  ease: [0.33, 0.94, 0.4, 1],
+};
 /** Prompts when header nav buttons are used — backend RAG answers like normal chat. */
 const HEADER_KB_PROMPTS = {
   about:
@@ -79,6 +101,26 @@ const HEADER_KB_PROMPTS = {
   contact:
     'Contact: Share how to reach the company (addresses, phone, email, hours, support channels) using only your knowledge base and uploaded documents. If something is not documented, say so.',
 };
+
+/** Snappy — buttons, toggles, quick micro-interactions */
+const SPRING_SNAPPY = { type: 'spring', stiffness: 700, damping: 28, mass: 0.4 };
+/** Natural — message bubbles, cards, panels entering */
+const SPRING_NATURAL = { type: 'spring', stiffness: 420, damping: 24, mass: 0.6 };
+/** Gentle — overlays, view transitions, large surface reveals */
+const SPRING_GENTLE = { type: 'spring', stiffness: 220, damping: 22, mass: 0.8 };
+
+function useMotionSprings() {
+  const prefersReduced = useReducedMotion();
+  return useMemo(
+    () => ({
+      snappy: prefersReduced ? { type: 'tween', duration: 0 } : SPRING_SNAPPY,
+      natural: prefersReduced ? { type: 'tween', duration: 0 } : SPRING_NATURAL,
+      gentle: prefersReduced ? { type: 'tween', duration: 0 } : SPRING_GENTLE,
+      prefersReduced,
+    }),
+    [prefersReduced],
+  );
+}
 
 // Supported Languages
 const SUPPORTED_LANGUAGES = [
@@ -107,10 +149,18 @@ const theme = {
   input: 'bg-slate-50',
   button: 'bg-[#02066F] text-white hover:bg-[#031880]',
   buttonSecondary: 'bg-slate-100 hover:bg-slate-200 text-slate-700',
-  userBubble: 'bg-[#02066F] text-white',
+  /* border-transparent: same 1px box model as ai bubble (border-slate-200) so padding lines up */
+  userBubble: 'bg-[#02066F] text-white border border-transparent',
   aiBubble: 'bg-[#F3F4F6] border border-slate-200 text-[#111827]',
   accent: 'bg-[#02066F]',
 };
+
+/** Timestamp / like row under a bubble (user + bot) */
+const MESSAGE_META_ROW_CLASS = 'flex items-center gap-2 mt-1 flex-wrap';
+/** Space after each full message row (bubble + meta) — keep compact between turns */
+const MESSAGE_THREAD_GAP_CLASS = 'mb-2';
+/** Same avatar↔bubble gap user & bot (replaces mixed mr-4/ml-4 vs skeleton mr-3) */
+const MESSAGE_ROW_FLEX_CLASS = 'flex items-start gap-3';
 
 // Helper function to generate initials from branding text
 const getBrandingInitials = (chatbotConfig) => {
@@ -362,175 +412,180 @@ const isFuzzyMatch = (text, keyword, threshold = 0.6) => {
 // WELCOME TYPEWRITER TEXT COMPONENT
 // ============================================
 
-const WelcomeTypewriter = ({ config, isConfigLoaded }) => {
-  const { currentLanguage, t: translate } = useTranslation();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [displayText, setDisplayText] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [translatedTexts, setTranslatedTexts] = useState([]);
+const PREMIUM_TROIKA_ROTATING_PREFIXES = [
+  'Sell & Manage',
+  'Close Deals',
+  'Convert Visitors',
+  'Delight Clients',
+];
 
-  const baseTexts = useMemo(() => {
-    // Don't compute placeholders until config is loaded to prevent showing defaults first
-    if (!isConfigLoaded) {
-      return [];
+const DEFAULT_PREMIUM_LINE1 = ['TRION', 'SmartSites'];
+const DEFAULT_PREMIUM_LINE2_WORDS = ['Sell', '&', 'Manage', 'Customers', '24×7'];
+
+/** Hero headline: word stagger, cursor, then rotating line (branding + admin “Welcome Rotating Text” / fallback). */
+function PremiumTroikaHeadline({
+  line1DelaySec = 0,
+  line2DelaySec = 0,
+  /** Admin “Welcome Message” (above input) — when enabled, drives hero line 1 instead of sidebar branding. */
+  welcomeText,
+  welcomeTextEnabled = false,
+  brandingCompany,
+  brandingText,
+  rotatingWelcomeEnabled = false,
+  rotatingWelcomePhrases,
+  rotatingWelcomeIntervalSec = 2.5,
+} = {}) {
+  const prefersReduced = useReducedMotion();
+  const configPhrases = useMemo(() => {
+    if (!Array.isArray(rotatingWelcomePhrases)) return [];
+    return rotatingWelcomePhrases
+      .map((p) => String(p || '').trim())
+      .filter(Boolean);
+  }, [rotatingWelcomePhrases]);
+
+  const useAdminRotating = rotatingWelcomeEnabled === true && configPhrases.length > 0;
+  const rotateEveryMs = Math.max(
+    800,
+    Math.round(1000 * (Number(rotatingWelcomeIntervalSec) > 0 ? Number(rotatingWelcomeIntervalSec) : 2.5)),
+  );
+
+  const line1Words = useMemo(() => {
+    if (welcomeTextEnabled && String(welcomeText || '').trim()) {
+      const firstLine = String(welcomeText).trim().split('\n')[0];
+      const words = firstLine.split(/\s+/).filter(Boolean);
+      if (words.length) return words;
     }
+    const a = String(brandingCompany || '').trim();
+    const b = String(brandingText || '').trim();
+    if (a && b) return [a, b];
+    if (a) return [a];
+    return DEFAULT_PREMIUM_LINE1;
+  }, [welcomeTextEnabled, welcomeText, brandingCompany, brandingText]);
 
-    // ✅ If placeholders are disabled, return empty array
-    if (!config?.input_placeholders_enabled) {
-      return [];
+  const line2Words = useMemo(() => {
+    if (useAdminRotating && configPhrases[0]) {
+      return configPhrases[0].split(/\s+/).filter(Boolean);
     }
+    return DEFAULT_PREMIUM_LINE2_WORDS;
+  }, [useAdminRotating, configPhrases]);
 
-    // If custom placeholders are enabled and exist, use them exclusively
-    if (config?.input_placeholders?.length > 0) {
-      return config.input_placeholders;
-    }
+  const rotateCycleLen = useAdminRotating
+    ? configPhrases.length
+    : PREMIUM_TROIKA_ROTATING_PREFIXES.length;
 
-    // Otherwise use default placeholders (only if placeholders are enabled)
-    return [
-      config?.sidebar_branding?.branding_company || "Troika Tech",
-      config?.sidebar_branding?.branding_text || "WhatsApp Marketing Agency",
-      "AI Automation Services",
-      "Your Digital Assistant",
-      "Smart Business Solutions",
-    ];
-  }, [isConfigLoaded, config?.input_placeholders, config?.input_placeholders_enabled, config?.sidebar_branding?.branding_company, config?.sidebar_branding?.branding_text]);
+  const [phase, setPhase] = useState('enter'); // enter | cursor | rotate
+  const [rotateIndex, setRotateIndex] = useState(0);
 
-  // Logic to get the fixed part (Welcome text) - simplified to avoid dependency on placeholders
-  const getFixedPart = () => {
-    // If welcome text is configured, use it as the fixed part
-    // Otherwise use a default welcome message
-    return config?.welcome_text || "Welcome to ";
-  };
+  const spring = prefersReduced
+    ? { duration: 0 }
+    : { type: 'spring', stiffness: 400, damping: 28 };
 
-  const fixedPart = getFixedPart();
-
-  // Translate all rotating texts when language changes
-  useEffect(() => {
-    const translateAll = async () => {
-      if (currentLanguage === 'English') {
-        setTranslatedTexts(baseTexts);
-        return;
-      }
-      try {
-        const results = await Promise.all(baseTexts.map(text => translate(text)));
-        setTranslatedTexts(results);
-      } catch (err) {
-        setTranslatedTexts(baseTexts);
-      }
-    };
-    translateAll();
-  }, [currentLanguage, baseTexts, translate]);
-
-  const rotatingTexts = translatedTexts.length > 0 ? translatedTexts : baseTexts;
-
-  const animationType = config?.input_placeholder_animation || 'typewriter';
-  const speedMs = (config?.input_placeholder_speed || 2.5) * 1000;
-
-  const typingSpeed = 100 / (config?.input_placeholder_speed || 2.5);
-  const deletingSpeed = typingSpeed / 2;
-
-  // ✅ Clear displayText when placeholders are disabled
-  useEffect(() => {
-    if (!isConfigLoaded) return;
-    if (!config?.input_placeholders_enabled) {
-      setDisplayText('');
-      setCurrentIndex(0);
-      setIsDeleting(false);
-    }
-  }, [isConfigLoaded, config?.input_placeholders_enabled]);
+  const line1WordDelay = (i) => (prefersReduced ? 0 : line1DelaySec + i * 0.07);
+  const line2WordDelay = (i) => (prefersReduced ? 0 : line2DelaySec + i * 0.07);
 
   useEffect(() => {
-    // ✅ Don't animate if placeholders are disabled or no rotating texts available
-    if (!isConfigLoaded || !config?.input_placeholders_enabled || rotatingTexts.length === 0) return;
-    const current = rotatingTexts[currentIndex];
+    setRotateIndex(0);
+  }, [useAdminRotating, configPhrases.join('|'), rotateCycleLen]);
 
-    // Handle fade/slide (jump to full text)
-    if (animationType !== 'typewriter') {
-      setDisplayText(current);
-      const timeout = setTimeout(() => {
-        setCurrentIndex((prev) => (prev + 1) % rotatingTexts.length);
-      }, speedMs);
-      return () => clearTimeout(timeout);
-    }
-
-    // Handle typewriter logic
-    const timeout = setTimeout(() => {
-      if (!isDeleting) {
-        if (displayText.length < current.length) {
-          setDisplayText(current.slice(0, displayText.length + 1));
-        } else {
-          setTimeout(() => setIsDeleting(true), 2000);
-        }
-      } else {
-        if (displayText.length > 0) {
-          setDisplayText(displayText.slice(0, -1));
-        } else {
-          setIsDeleting(false);
-          setCurrentIndex((prev) => (prev + 1) % rotatingTexts.length);
-        }
-      }
-    }, isDeleting ? deletingSpeed : typingSpeed);
-
-    return () => clearTimeout(timeout);
-  }, [isConfigLoaded, config?.input_placeholders_enabled, displayText, isDeleting, currentIndex, rotatingTexts, typingSpeed, deletingSpeed, animationType, speedMs]);
-
-  // Debug log (only log once when config changes, not on every render)
-  // MUST be before early return to maintain hook order
   useEffect(() => {
-    if (isConfigLoaded) {
-      const showFixedPart = config?.welcome_text_enabled === true;
-      console.log('🔍 [WelcomeText] Config loaded:', {
-        welcome_text_enabled: config?.welcome_text_enabled,
-        type: typeof config?.welcome_text_enabled,
-        showFixedPart,
-        welcome_text: config?.welcome_text,
-        isConfigLoaded
-      });
+    if (prefersReduced) {
+      setPhase('rotate');
+      return;
     }
-  }, [isConfigLoaded, config?.welcome_text_enabled, config?.welcome_text]);
+    if (phase !== 'enter') return;
+    const ms = Math.round(
+      line2DelaySec * 1000 + Math.max(0, line2Words.length - 1) * 70 + 480,
+    );
+    const t = window.setTimeout(() => setPhase('cursor'), ms);
+    return () => window.clearTimeout(t);
+  }, [phase, prefersReduced, line2DelaySec, line2Words.length]);
 
-  // Don't render anything until config is loaded to prevent showing default placeholders
-  if (!isConfigLoaded) {
-    return null;
-  }
+  useEffect(() => {
+    if (prefersReduced || phase !== 'cursor') return;
+    const t = window.setTimeout(() => setPhase('rotate'), 2000);
+    return () => window.clearTimeout(t);
+  }, [phase, prefersReduced]);
 
-  // ✅ Show fixed welcome text only if welcome_text_enabled is explicitly true
-  // IMPORTANT: Only show if it's explicitly true, otherwise hide (even if undefined)
-  const showFixedPart = config?.welcome_text_enabled === true;
-  // ✅ Show rotating placeholder part when placeholders are enabled
-  const showRotatingPart = config?.input_placeholders_enabled && rotatingTexts.length > 0;
+  useEffect(() => {
+    if (phase !== 'rotate' || prefersReduced || rotateCycleLen < 1) return;
+    const ms = useAdminRotating ? rotateEveryMs : 2800;
+    const id = window.setInterval(() => {
+      setRotateIndex((i) => (i + 1) % rotateCycleLen);
+    }, ms);
+    return () => window.clearInterval(id);
+  }, [phase, prefersReduced, rotateCycleLen, useAdminRotating, rotateEveryMs]);
 
-  // Don't render anything if both parts are hidden
-  if (!showFixedPart && !showRotatingPart) {
-    return null;
-  }
-
-  const stackedWelcomeRotating = config?.welcome_rotating_two_lines !== false;
+  const rotatingDisplayText = useAdminRotating
+    ? configPhrases[rotateIndex % configPhrases.length]
+    : PREMIUM_TROIKA_ROTATING_PREFIXES[rotateIndex % PREMIUM_TROIKA_ROTATING_PREFIXES.length];
 
   return (
-    <div className="welcome-typewriter-container">
-      <div
-        className={`welcome-typewriter-text ${stackedWelcomeRotating ? "welcome-typewriter--stacked" : "welcome-typewriter--inline"} animation-${config?.input_placeholder_animation || "typewriter"}`}
+    <div className="premium-troika-headline w-full max-w-[780px] px-2">
+      <h1
+        className="flex flex-wrap justify-center gap-x-2 gap-y-1 text-center font-bold text-[#1a1a2e]"
+        style={{ fontSize: 'clamp(24px,4vw,32px)' }}
       >
-        {showFixedPart && (
-          <div className="welcome-fixed-line">
-            <span className="welcome-fixed-part">
-              <T>{fixedPart}</T>
-            </span>
-          </div>
+        {line1Words.map((w, i) => (
+          <motion.span
+            key={`l1-${i}-${w}`}
+            initial={{ opacity: 0, y: 20, filter: 'blur(4px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            transition={{ ...spring, delay: line1WordDelay(i) }}
+          >
+            {w}
+          </motion.span>
+        ))}
+      </h1>
+      <h2
+        className="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center font-bold text-[#02066F]"
+        style={{ fontSize: 'clamp(18px,3vw,24px)' }}
+      >
+        {phase === 'rotate' ? (
+          <>
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={rotatingDisplayText}
+                initial={prefersReduced ? false : { opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={prefersReduced ? undefined : { opacity: 0, y: 10 }}
+                transition={
+                  prefersReduced
+                    ? { duration: 0 }
+                    : { type: 'spring', stiffness: 400, damping: 28 }
+                }
+                className={useAdminRotating ? 'inline-block text-center' : 'inline-block'}
+              >
+                {rotatingDisplayText}
+              </motion.span>
+            </AnimatePresence>
+            {!useAdminRotating ? (
+              <>
+                <span className="inline"> Customers 24×7</span>
+                <span className="typing-cursor inline opacity-90">|</span>
+              </>
+            ) : (
+              <span className="typing-cursor inline opacity-90">|</span>
+            )}
+          </>
+        ) : (
+          <>
+            {line2Words.map((w, i) => (
+              <motion.span
+                key={`l2-${i}-${w}`}
+                initial={{ opacity: 0, y: 20, filter: 'blur(4px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                transition={{ ...spring, delay: line2WordDelay(i) }}
+              >
+                {w}
+              </motion.span>
+            ))}
+            {phase === 'cursor' ? <span className="typing-cursor inline">|</span> : null}
+          </>
         )}
-        {showRotatingPart && (
-          <div className="welcome-rotating-line">
-            <span className="welcome-typing-wrapper">
-              <span key={displayText} className="welcome-typing-part">{displayText}</span>
-              {animationType === 'typewriter' && <span className="typing-cursor">|</span>}
-            </span>
-          </div>
-        )}
-      </div>
+      </h2>
     </div>
   );
-};
+}
 
 // ============================================
 // ICONS
@@ -1106,15 +1161,58 @@ function useStreamingChat({ apiBase, chatbotId, sessionId, conversationId, phone
 // ============================================
 
 
+// Skeleton row while conversation messages load
+const SkeletonBubble = ({ isUser = false, width = '70%' }) => {
+  const { natural } = useMotionSprings();
+  const skeletonShellRef = useRef(null);
+  return (
+    <motion.div
+      ref={skeletonShellRef}
+      className={`${MESSAGE_ROW_FLEX_CLASS} ${MESSAGE_THREAD_GAP_CLASS} ${isUser ? 'justify-end' : 'justify-start'}`}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={natural}
+      style={{ willChange: 'transform, opacity' }}
+      onAnimationComplete={() => {
+        if (skeletonShellRef.current) skeletonShellRef.current.style.willChange = 'auto';
+      }}
+    >
+      {!isUser && (
+        <div className="w-9 h-9 rounded-full bg-slate-200 flex-shrink-0 animate-pulse motion-reduce:animate-none" />
+      )}
+      <div
+        className="rounded-2xl bg-slate-200 animate-pulse motion-reduce:animate-none"
+        style={{ width, height: '52px', borderRadius: '18px' }}
+      />
+      {isUser && (
+        <div className="w-9 h-9 rounded-full bg-slate-200 flex-shrink-0 animate-pulse motion-reduce:animate-none" />
+      )}
+    </motion.div>
+  );
+};
+
 // Conversation Item
 const ConversationItem = ({ conversation, isActive, onClick }) => {
+  const { snappy, natural } = useMotionSprings();
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onClick}
-      className={`block w-full text-left px-3 md:px-4 py-2 border-b ${theme.borderLight} flex-shrink-0 relative ${isActive ? 'bg-slate-50' : theme.cardHover
+      className={`block w-full text-left px-3 md:px-4 py-2 border-b ${theme.borderLight} flex-shrink-0 relative overflow-hidden ${isActive ? 'bg-slate-50' : theme.cardHover
         }`}
+      whileHover={{ x: 3, backgroundColor: 'rgba(2, 6, 111, 0.04)' }}
+      whileTap={{ scale: 0.98 }}
+      transition={snappy}
+      style={{ willChange: 'transform' }}
     >
+      {isActive && (
+        <motion.div
+          layoutId="activeConvIndicator"
+          className="absolute left-0 top-1 bottom-1 w-0.5 bg-[#02066F] rounded-full"
+          transition={natural}
+          style={{ willChange: 'transform' }}
+        />
+      )}
       <div className="flex items-center gap-4">
         <div className="relative">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isActive ? theme.accent + ' text-white' : 'bg-slate-100 text-slate-600'
@@ -1138,7 +1236,7 @@ const ConversationItem = ({ conversation, isActive, onClick }) => {
           <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-2" />
         )}
       </div>
-    </button>
+    </motion.button>
   );
 };
 
@@ -1298,14 +1396,27 @@ const DocumentCard = ({ document }) => {
 // PDF Attachment and Chart Message components are now imported from separate files
 
 // Message Actions Component (Like, Dislike, Copy, etc.)
-const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevResponse, onNextResponse }) => {
+const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevResponse, onNextResponse, hasChatBackground = false }) => {
+  const [copied, setCopied] = useState(false);
+  const { snappy } = useMotionSprings();
   const themeStyles = theme;
+  const timeClass = hasChatBackground
+    ? 'text-xs text-slate-900 font-medium [text-shadow:0_1px_2px_rgba(255,255,255,0.95),0_0_10px_rgba(255,255,255,0.5)]'
+    : `text-xs ${themeStyles.textMuted}`;
+  const btnIcon = 'w-8 h-8 rounded-lg flex items-center justify-center transition-colors';
+  const iconIdle = hasChatBackground
+    ? `${btnIcon} text-slate-900 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.9))] hover:bg-white/55 hover:text-[#02066F]`
+    : `${btnIcon} text-[#6B7280] hover:text-[#02066F] hover:bg-slate-100`;
+  const iconPicked = hasChatBackground
+    ? `${btnIcon} text-[#02066F] bg-white/75 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.85))]`
+    : `${btnIcon} text-[#02066F] bg-slate-100`;
 
   // Handle copy to clipboard
   const handleCopy = () => {
     const textToCopy = message.responses?.[message.activeResponseIndex || 0]?.text || message.content || '';
     navigator.clipboard.writeText(textToCopy).then(() => {
-      // Optional: show toast notification
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
     });
     if (onCopy) onCopy();
   };
@@ -1317,75 +1428,111 @@ const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevRe
   const messageFeedback = feedback || 'none'; // 'like', 'dislike', or 'none'
 
   return (
-    <div className="flex items-center gap-2 mt-3 flex-wrap">
+    <div className={MESSAGE_META_ROW_CLASS}>
       {/* Timestamp */}
-      <span className={`text-xs ${themeStyles.textMuted}`}>{message.time || 'Just now'}</span>
+      <span className={`${timeClass} shrink-0`}>{message.time || 'Just now'}</span>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         {/* Like Button - Show only if not disliked */}
         {messageFeedback !== 'dislike' && (
-          <button
+          <motion.button
+            type="button"
             onClick={onLike}
-            className={`w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center transition-colors ${messageFeedback === 'like'
-              ? 'text-[#02066F] bg-slate-100'
-              : 'text-[#6B7280] hover:text-[#02066F]'
-              }`}
+            className={messageFeedback === 'like' ? iconPicked : iconIdle}
             title="Like"
+            whileTap={{ scale: 1.4 }}
+            transition={snappy}
+            style={{ willChange: 'transform' }}
           >
             <svg className="w-4 h-4" fill={messageFeedback === 'like' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
             </svg>
-          </button>
+          </motion.button>
         )}
 
         {/* Dislike Button - Show only if not liked */}
         {messageFeedback !== 'like' && (
-          <button
+          <motion.button
+            type="button"
             onClick={onDislike}
-            className={`w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center transition-colors ${messageFeedback === 'dislike'
-              ? 'text-[#02066F] bg-slate-100'
-              : 'text-[#6B7280] hover:text-[#02066F]'
-              }`}
+            className={messageFeedback === 'dislike' ? iconPicked : iconIdle}
             title="Dislike"
+            whileTap={{ scale: 1.4 }}
+            transition={snappy}
+            style={{ willChange: 'transform' }}
           >
             <svg className="w-4 h-4" fill={messageFeedback === 'dislike' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
             </svg>
-          </button>
+          </motion.button>
         )}
 
-        <button
+        <motion.button
+          type="button"
           onClick={handleCopy}
-          className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center transition-colors text-[#6B7280] hover:text-[#02066F]"
+          className={iconIdle}
           title="Copy message"
+          style={{ willChange: 'transform' }}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-        </button>
+          <AnimatePresence mode="wait" initial={false}>
+            {copied ? (
+              <motion.span
+                key="check"
+                className="inline-flex"
+                initial={{ scale: 0, rotate: -45 }}
+                animate={{ scale: 1, rotate: 0 }}
+                exit={{ scale: 0 }}
+                transition={snappy}
+              >
+                <span className="text-[#2DA44E] text-lg leading-none" aria-hidden>✓</span>
+              </motion.span>
+            ) : (
+              <motion.span
+                key="copy"
+                className="inline-flex"
+                initial={{ scale: 1 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
+                transition={snappy}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </motion.button>
       </div>
 
       {/* Response Navigation */}
       {hasMultipleResponses && (
-        <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-100">
+        <div
+          className={
+            hasChatBackground
+              ? 'flex items-center gap-2 px-2 py-1 rounded-lg bg-white/70 backdrop-blur-sm border border-white/50'
+              : 'flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-100'
+          }
+        >
           <button
             onClick={onPrevResponse}
             disabled={activeIndex === 0}
-            className="w-6 h-6 rounded hover:bg-white flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-[#6B7280] hover:text-[#02066F]"
+            className={`w-6 h-6 rounded flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:text-[#02066F] ${hasChatBackground ? 'text-slate-900 hover:bg-white/80 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.85))]' : 'hover:bg-white text-[#6B7280]'}`}
             title="Previous response"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <span className="text-xs font-medium text-[#6B7280] min-w-[2.5rem] text-center">
+          <span
+            className={`text-xs font-medium min-w-[2.5rem] text-center ${hasChatBackground ? 'text-slate-900 [text-shadow:0_1px_2px_rgba(255,255,255,0.9)]' : 'text-[#6B7280]'}`}
+          >
             {activeIndex + 1} / {responses.length}
           </span>
           <button
             onClick={onNextResponse}
             disabled={activeIndex === responses.length - 1}
-            className="w-6 h-6 rounded hover:bg-white flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-[#6B7280] hover:text-[#02066F]"
+            className={`w-6 h-6 rounded flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:text-[#02066F] ${hasChatBackground ? 'text-slate-900 hover:bg-white/80 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.85))]' : 'hover:bg-white text-[#6B7280]'}`}
             title="Next response"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1398,9 +1545,114 @@ const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevRe
   );
 };
 
+const AnimatedStreamingText = ({ text, isStreaming }) => {
+  const [displayText, setDisplayText] = React.useState('');
+  const processedRef = React.useRef(0);
+  const queueRef = React.useRef('');
+  const timerRef = React.useRef(null);
+
+  // When new text arrives, queue only the truly new characters
+  React.useEffect(() => {
+    if (!text) {
+      processedRef.current = 0;
+      queueRef.current = '';
+      setDisplayText('');
+      return;
+    }
+    // processedRef tracks how many chars of `text` we have
+    // already put into the queue — no stale closure possible
+    const newChars = text.slice(processedRef.current);
+    if (newChars.length > 0) {
+      queueRef.current += newChars;
+      processedRef.current = text.length;
+    }
+  }, [text]);
+
+  // Drip timer — runs independently, drains queue char by char
+  React.useEffect(() => {
+    const drip = () => {
+      if (queueRef.current.length > 0) {
+        const chunkSize = queueRef.current.length > 50 ? 2 : 1;
+        const next = queueRef.current.slice(0, chunkSize);
+        queueRef.current = queueRef.current.slice(chunkSize);
+        setDisplayText(prev => prev + next);
+      }
+      timerRef.current = setTimeout(drip, 12);
+    };
+    timerRef.current = setTimeout(drip, 12);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  // Full reset when new conversation starts
+  React.useEffect(() => {
+    if (text === '') {
+      setDisplayText('');
+      queueRef.current = '';
+      processedRef.current = 0;
+    }
+  }, [text]);
+
+  const hasTable = displayText.includes('|') && displayText.includes('---');
+
+  return (
+    <ReactMarkdown
+        remarkPlugins={hasTable ? [remarkGfm] : []}
+        rehypePlugins={[rehypeRaw]}
+        components={{
+          p: ({node, ...props}) => (
+            <p className="text-[15px] leading-relaxed" {...props} />
+          ),
+          li: ({node, ...props}) => (
+            <li className="text-[15px] leading-relaxed" {...props} />
+          ),
+          h3: ({node, ...props}) => (
+            <h3 className="font-semibold text-base mb-1 mt-2" {...props} />
+          ),
+          strong: ({node, ...props}) => (
+            <strong className="font-semibold" {...props} />
+          ),
+        }}
+      >
+        {displayText}
+      </ReactMarkdown>
+  );
+};
+
 // Message Component
-const Message = ({ message, isUser, isStreaming, onCopy, onPrevResponse, onNextResponse, chatbotConfig, messageFeedback, onLike, onDislike }) => {
+const Message = ({
+  message,
+  isUser,
+  isStreaming,
+  onCopy,
+  onPrevResponse,
+  onNextResponse,
+  chatbotConfig,
+  messageFeedback,
+  onLike,
+  onDislike,
+  hasChatBackground = false,
+  flyInFromComposer = false,
+  onFlyInComplete,
+}) => {
   const t = theme;
+  const springs = useMotionSprings();
+  const aiBubbleVariants = {
+    hidden: { opacity: 0, y: 14, scale: 0.97, filter: 'blur(2px)' },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      filter: 'blur(0px)',
+      transition: { ...springs.natural, opacity: { duration: springs.prefersReduced ? 0 : 0.18 } },
+    },
+  };
+  const aiBubbleRowRef = useRef(null);
+  const userFlyRowRef = useRef(null);
+  const userTimeClass = hasChatBackground
+    ? 'text-xs text-slate-900 font-medium [text-shadow:0_1px_2px_rgba(255,255,255,0.95),0_0_10px_rgba(255,255,255,0.5)]'
+    : `text-xs ${t.textMuted}`;
 
   const renderContent = () => {
     // Get active response text if responses array exists
@@ -1473,6 +1725,13 @@ const Message = ({ message, isUser, isStreaming, onCopy, onPrevResponse, onNextR
     if (isUser) {
       return <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{activeResponseText}</p>;
     } else {
+      if (isStreaming) {
+        return (
+          <div className="markdown-content" style={{ transition: 'opacity 0.1s ease' }}>
+            <AnimatedStreamingText text={typeof activeResponseText === 'string' ? activeResponseText : ''} isStreaming={isStreaming} />
+          </div>
+        );
+      }
       // Check if response contains table markdown to determine if we need remark-gfm
       const hasTable = activeResponseText.includes('|') && activeResponseText.includes('---');
 
@@ -1495,16 +1754,16 @@ const Message = ({ message, isUser, isStreaming, onCopy, onPrevResponse, onNextR
               th: ({ children }) => <th>{children}</th>,
               td: ({ children }) => <td>{children}</td>,
 
-              p: ({ children }) => <p className="text-[15px] leading-relaxed mb-2">{children}</p>,
+              p: ({ children }) => <p className="text-[15px] leading-relaxed">{children}</p>,
               strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
               em: ({ children }) => <em className="italic">{children}</em>,
-              ul: ({ children }) => <ul className="list-disc ml-4 mb-2 space-y-1">{children}</ul>,
-              ol: ({ children }) => <ol className="list-decimal ml-4 mb-2 space-y-1">{children}</ol>,
+              ul: ({ children }) => <ul className="list-disc ml-4 space-y-1">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal ml-4 space-y-1">{children}</ol>,
               li: ({ children }) => <li className="text-[15px] leading-relaxed">{children}</li>,
               code: ({ inline, children }) => inline ?
                 <code className="bg-slate-100 px-2 py-1 rounded text-sm font-mono">{children}</code> :
                 <code className="block bg-slate-100 p-3 rounded text-sm font-mono whitespace-pre-wrap">{children}</code>,
-              blockquote: ({ children }) => <blockquote className="border-l-4 border-slate-300 pl-4 italic text-slate-700 mb-2">{children}</blockquote>,
+              blockquote: ({ children }) => <blockquote className="border-l-4 border-slate-300 pl-4 italic text-slate-700">{children}</blockquote>,
             }}
           >
             {activeResponseText}
@@ -1514,38 +1773,94 @@ const Message = ({ message, isUser, isStreaming, onCopy, onPrevResponse, onNextR
     }
   };
 
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-6 animate-fadeIn`}>
+  const userFlyMotion = isUser && flyInFromComposer;
+  const rowClassName = `${MESSAGE_ROW_FLEX_CLASS} ${isUser ? 'justify-end' : 'justify-start'} ${MESSAGE_THREAD_GAP_CLASS} ${userFlyMotion || !isUser ? '' : 'animate-fadeIn'}`;
+
+  const streamingCursor = isStreaming && !message.type && (
+    <motion.span
+      className="mt-1.5 inline-block h-4 w-px shrink-0 rounded-full bg-[#1F3A5F] align-text-bottom"
+      aria-hidden
+      animate={{
+        opacity: [1, 0.15, 1],
+        scaleY: [1, 0.85, 1],
+        boxShadow: [
+          '0 0 0px rgba(2, 6, 111, 0)',
+          '0 0 6px rgba(2, 6, 111, 0.7)',
+          '0 0 0px rgba(2, 6, 111, 0)',
+        ],
+      }}
+      transition={{
+        duration: springs.prefersReduced ? 0 : 0.9,
+        repeat: springs.prefersReduced ? 0 : Infinity,
+        ease: 'easeInOut',
+      }}
+      style={{ willChange: 'transform, opacity' }}
+    />
+  );
+
+  const bubbleCard = isUser ? (
+    <motion.div
+      layoutId={flyInFromComposer ? 'userBubbleCard' : undefined}
+      className={`px-5 py-4 rounded-2xl ${t.userBubble} rounded-br-md`}
+      transition={springs.snappy}
+      style={{ willChange: 'transform, opacity' }}
+    >
+      <div className="min-w-0 flow-root">
+        {renderContent()}
+        {streamingCursor}
+      </div>
+      {message.orderCard && <OrderStatusCard order={message.orderCard} />}
+      {message.appointment && <AppointmentCard appointment={message.appointment} />}
+      {message.document && <DocumentCard document={message.document} />}
+    </motion.div>
+  ) : (
+    <motion.div
+      className={`px-5 py-4 rounded-2xl ${t.aiBubble} rounded-bl-md rainbow-border-animated`}
+      initial={{ scaleX: 0.96 }}
+      animate={{ scaleX: 1 }}
+      style={{ transformOrigin: '0% 50%', willChange: 'transform, opacity' }}
+      transition={{ ...springs.snappy, delay: springs.prefersReduced ? 0 : 0.04 }}
+    >
+      <div className="min-w-0 flow-root">
+        {renderContent()}
+        {streamingCursor}
+      </div>
+      {message.orderCard && <OrderStatusCard order={message.orderCard} />}
+      {message.appointment && <AppointmentCard appointment={message.appointment} />}
+      {message.document && <DocumentCard document={message.document} />}
+    </motion.div>
+  );
+
+  const rowInner = (
+    <>
       {!isUser && (
         <img
           src={chatbotConfig?.assistant_logo_url || OmniAgentLogo}
           alt="AI Assistant"
-          className="w-9 h-9 rounded-full object-cover mr-4 flex-shrink-0"
+          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
           onError={(e) => {
             e.target.src = OmniAgentLogo; // Fallback to default logo if URL fails
           }}
         />
       )}
 
-      <div className={`max-w-[65%]`}>
-        <div className={`px-5 py-4 rounded-2xl ${isUser ? t.userBubble + ' rounded-br-md' : t.aiBubble + ' rounded-bl-md rainbow-border-animated'}`}>
-          {renderContent()}
-          {isStreaming && !message.type && (
-            <span className="inline-block w-2 h-4 bg-[#1F3A5F] animate-pulse ml-1" />
-          )}
-
-          {message.orderCard && <OrderStatusCard order={message.orderCard} />}
-          {message.appointment && <AppointmentCard appointment={message.appointment} />}
-          {message.document && <DocumentCard document={message.document} />}
-        </div>
+      <div className={`max-w-[65%] min-w-0`}>
+        {bubbleCard}
 
         {isUser ? (
-          <div className="flex items-center gap-2 mt-2 justify-end">
-            <span className={`text-xs ${t.textMuted}`}>{message.time}</span>
-            <span className="text-[#2DA44E]">{Icons.check}</span>
+          <div className={`${MESSAGE_META_ROW_CLASS} justify-end`}>
+            <span className={userTimeClass}>{message.time}</span>
+            <span
+              className={
+                hasChatBackground
+                  ? 'text-[#1a7f37] [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.9))]'
+                  : 'text-[#2DA44E]'
+              }
+            >
+              {Icons.check}
+            </span>
           </div>
         ) : (
-          // Action buttons for bot messages
           <MessageActions
             message={message}
             feedback={messageFeedback[message.id]}
@@ -1554,78 +1869,208 @@ const Message = ({ message, isUser, isStreaming, onCopy, onPrevResponse, onNextR
             onCopy={onCopy}
             onPrevResponse={onPrevResponse}
             onNextResponse={onNextResponse}
+            hasChatBackground={hasChatBackground}
           />
         )}
       </div>
 
       {isUser && (
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center ml-4 flex-shrink-0">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center flex-shrink-0">
           <User className="w-5 h-5 text-slate-600" />
         </div>
       )}
-    </div>
+    </>
   );
+
+  if (userFlyMotion) {
+    return (
+      <motion.div
+        ref={userFlyRowRef}
+        className={rowClassName}
+        initial={USER_BUBBLE_FLYIN_INITIAL}
+        animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+        transition={USER_BUBBLE_FLYIN_TRANSITION}
+        onAnimationComplete={() => {
+          if (userFlyRowRef.current) userFlyRowRef.current.style.willChange = 'auto';
+          onFlyInComplete?.();
+        }}
+        style={{ willChange: 'transform, opacity' }}
+      >
+        {rowInner}
+      </motion.div>
+    );
+  }
+
+  if (!isUser) {
+    return (
+      <motion.div
+        ref={aiBubbleRowRef}
+        className={rowClassName}
+        variants={aiBubbleVariants}
+        initial="hidden"
+        animate="visible"
+        style={{ willChange: 'transform, opacity' }}
+        onAnimationComplete={() => {
+          if (aiBubbleRowRef.current) aiBubbleRowRef.current.style.willChange = 'auto';
+        }}
+      >
+        {rowInner}
+      </motion.div>
+    );
+  }
+
+  return <div className={rowClassName}>{rowInner}</div>;
 };
 
-// AI Thinking - Simple rotating text
+// AI Thinking — Framer orbital dots + container enter/exit
 const AIThinking = () => {
-  const [currentText, setCurrentText] = useState(0);
-  const texts = ["Just a moment", "Working on it", "Almost there"];
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentText((prev) => (prev + 1) % texts.length);
-    }, 1000); // Change text every 1 second
-
-    return () => clearInterval(interval);
-  }, []);
+  const springs = useMotionSprings();
+  const aiThinkingContainerRef = useRef(null);
+  const containerVariants = {
+    hidden: { opacity: 0, y: 10, scale: 0.95 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: springs.natural,
+    },
+    exit: {
+      opacity: 0,
+      y: -6,
+      scale: 0.95,
+      transition: { duration: springs.prefersReduced ? 0 : 0.18, ease: 'easeIn' },
+    },
+  };
 
   return (
-    <div className="flex items-start mb-6">
-      <div className="flex items-center gap-2 px-4 py-2">
-        <span className="text-base font-medium text-gray-600">
-          {texts[currentText]}
-        </span>
-        <div className="rotating-dots">
-          <span className="dot">.</span>
-          <span className="dot">.</span>
-          <span className="dot">.</span>
+    <motion.div
+      ref={aiThinkingContainerRef}
+      className={`${MESSAGE_ROW_FLEX_CLASS} ${MESSAGE_THREAD_GAP_CLASS}`}
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      style={{ willChange: 'transform, opacity' }}
+      onAnimationComplete={() => {
+        if (aiThinkingContainerRef.current) aiThinkingContainerRef.current.style.willChange = 'auto';
+      }}
+    >
+      <div className="relative flex-shrink-0">
+        <motion.div
+          className="absolute inset-0 rounded-full bg-[#02066F]/20"
+          animate={
+            springs.prefersReduced
+              ? { scale: 1, opacity: 0 }
+              : { scale: [1, 1.35, 1], opacity: [0.5, 0, 0.5] }
+          }
+          transition={{ duration: 2, repeat: springs.prefersReduced ? 0 : Infinity, ease: 'easeOut' }}
+          style={{ willChange: 'transform, opacity' }}
+        />
+        <div className="w-9 h-9 rounded-full bg-[#02066F] flex items-center justify-center overflow-hidden">
+          <img src={OmniAgentLogo} alt="" className="w-5 h-5 rounded-full object-cover" />
         </div>
       </div>
-    </div>
+
+      <div className="bg-[#F3F4F6] border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
+        {[0, 1, 2].map((i) => (
+          <motion.span
+            key={i}
+            className="block w-2 h-2 rounded-full bg-[#02066F]/50"
+            animate={
+              springs.prefersReduced
+                ? { y: 0, opacity: 0.6, scale: 1 }
+                : {
+                    y: [-6, 0, -6],
+                    opacity: [0.4, 1, 0.4],
+                    scale: [0.85, 1.1, 0.85],
+                  }
+            }
+            transition={{
+              duration: 1.1,
+              delay: i * 0.15,
+              repeat: springs.prefersReduced ? 0 : Infinity,
+              ease: 'easeInOut',
+            }}
+            style={{ willChange: 'transform, opacity' }}
+          />
+        ))}
+      </div>
+    </motion.div>
   );
 };
 
 // Quick Action
 const QuickAction = ({ icon, label, description, onClick, className = '' }) => {
   const t = theme;
+  const { snappy, natural } = useMotionSprings();
   return (
-    <button
+    <motion.button
+      type="button"
       onClick={onClick}
-      className={`flex items-start gap-4 p-4 bg-[#f0f0f0] rounded-xl border border-[#3c84e3] hover:border-[#2DA44E] hover:bg-[#e5e5e5] transition-all text-left group ${className}`}
+      className={`quick-action-card flex items-start gap-4 p-4 bg-[#f0f0f0] rounded-xl border border-[#3c84e3] text-left group ${className}`}
+      whileHover={{
+        scale: 1.025,
+        y: -2,
+      }}
+      whileTap={{ scale: 0.975, y: 0 }}
+      transition={natural}
+      style={{ willChange: 'transform' }}
     >
-      <div className="w-10 h-10 rounded-xl bg-[#02066F] group-hover:bg-[#031880] flex items-center justify-center transition-colors text-white">
+      <motion.div
+        className="w-10 h-10 rounded-xl bg-[#02066F] flex items-center justify-center text-white"
+        whileHover={{ rotate: -4, scale: 1.1 }}
+        transition={snappy}
+        style={{ willChange: 'transform' }}
+      >
         {icon}
-      </div>
+      </motion.div>
       <div className="flex-1">
         <span className={`text-sm font-semibold ${t.text}`}><T>{label}</T></span>
         <p className="text-xs text-[#4e5154] mt-0.5"><T>{description}</T></p>
       </div>
-      <span className={t.textMuted}>{Icons.chevronRight}</span>
-    </button>
+      <motion.span
+        className={t.textMuted}
+        whileHover={{ x: 3 }}
+        transition={snappy}
+        style={{ willChange: 'transform' }}
+      >
+        {Icons.chevronRight}
+      </motion.span>
+    </motion.button>
   );
 };
 
-// Settings Panel
-const SettingsPanel = ({ isOpen, onClose }) => {
+// Settings Panel — mount only when open; exit via AnimatePresence parent
+const SettingsPanel = ({ onClose }) => {
   const t = theme;
-
-  if (!isOpen) return null;
+  const { gentle } = useMotionSprings();
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-[#02066F]/20 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative w-96 ${t.sidebar} border-l ${t.border} h-full overflow-y-auto animate-slideIn`}>
+    <motion.div
+      className="fixed inset-0 z-50 flex justify-end"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      style={{ willChange: 'opacity' }}
+    >
+      <motion.div
+        className="absolute inset-0 bg-[#02066F]/20 backdrop-blur-sm"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        onClick={onClose}
+        style={{ willChange: 'opacity' }}
+      />
+      <motion.div
+        className={`relative w-96 ${t.sidebar} border-l ${t.border} h-full overflow-y-auto`}
+        initial={{ x: '100%', opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: '100%', opacity: 0 }}
+        transition={{ ...gentle }}
+        style={{ willChange: 'transform, opacity' }}
+      >
         <div className={`px-6 py-5 border-b ${t.borderLight} flex items-center justify-between`}>
           <h2 className={`font-semibold ${t.text}`}><T>Settings</T></h2>
           <button onClick={onClose} className={`w-8 h-8 rounded-lg ${t.buttonSecondary} flex items-center justify-center`}>
@@ -1665,8 +2110,8 @@ const SettingsPanel = ({ isOpen, onClose }) => {
         <div className={`p-6 border-t ${t.borderLight}`}>
           <p className={`text-xs ${t.textMuted} text-center`}>Troika Tech v3.0.1</p>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 
@@ -1702,6 +2147,15 @@ const getFlowString = (language, key, defaultText = '') => {
 };
 
 export default function NovaPremiumEnterprise() {
+  const uiSprings = useMotionSprings();
+  const shellSidebarControls = useAnimationControls();
+  const shellHeaderControls = useAnimationControls();
+  const shellMainControls = useAnimationControls();
+  const welcomeComposerControls = useAnimationControls();
+  const welcomeQuickActionsControls = useAnimationControls();
+  const [welcomeAfterSidebarIntro, setWelcomeAfterSidebarIntro] = useState(false);
+  const shellMountTimelineDoneRef = useRef(false);
+
   const { currentLanguage, changeLanguage, t: translate } = useTranslation();
 
   // Authentication state
@@ -1713,6 +2167,11 @@ export default function NovaPremiumEnterprise() {
   const [showAuthForm, setShowAuthForm] = useState(false);
   const [authErrorBanner, setAuthErrorBanner] = useState(false);
   const [messageCount, setMessageCount] = useState(0);
+  /** Triggers one-shot fly-in from composer for the matching user message id. */
+  const [userBubbleFlyInId, setUserBubbleFlyInId] = useState(null);
+  const clearUserBubbleFlyIn = useCallback(() => {
+    setUserBubbleFlyInId(null);
+  }, []);
   const MESSAGE_LIMIT = 1;
 
   // Generate unique ID for initial conversation
@@ -1734,13 +2193,26 @@ export default function NovaPremiumEnterprise() {
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [headerLangDropdownOpen, setHeaderLangDropdownOpen] = useState(false);
-  const [sidebarLangDropdownOpen, setSidebarLangDropdownOpen] = useState(false);
+  const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarMobileRef = useRef(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [recentChatsOpen, setRecentChatsOpen] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [logoutDropdownOpen, setLogoutDropdownOpen] = useState(false);
+  const [sendAnimKey, setSendAnimKey] = useState(0);
+  const [justSent, setJustSent] = useState(false);
+  const [welcomeComposerFocused, setWelcomeComposerFocused] = useState(false);
+  const [chatInputFocused, setChatInputFocused] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [headerNavActiveKey, setHeaderNavActiveKey] = useState(null);
+  const [headerNavHoverKey, setHeaderNavHoverKey] = useState(null);
+  const [newConvRipples, setNewConvRipples] = useState([]);
+  /** false on mobile (≤768px) so inner sidebar strip does not mount with x:-100% before matchMedia runs. */
+  const [shellSidebarSlideEnabled, setShellSidebarSlideEnabled] = useState(() =>
+    typeof window !== 'undefined' ? !window.matchMedia('(max-width: 768px)').matches : true,
+  );
   const [messageFeedback, setMessageFeedback] = useState({}); // {messageId: 'like' | 'dislike'}
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
 
@@ -2065,6 +2537,7 @@ export default function NovaPremiumEnterprise() {
     const fetchConfig = async () => {
       if (!API_CONFIG.CHATBOT_ID) {
         console.log('⚠️ No CHATBOT_ID configured, using default settings');
+        setIsConfigLoaded(true);
         return;
       }
 
@@ -2101,7 +2574,9 @@ export default function NovaPremiumEnterprise() {
               input_placeholders: result.data.input_placeholders || [],
               input_placeholder_speed: result.data.input_placeholder_speed || 2.5,
               input_placeholder_animation: result.data.input_placeholder_animation || 'fade',
+              whatsapp_enabled: result.data.whatsapp_enabled === true,
               whatsapp_number: result.data.whatsapp_number || '',
+              call_enabled: result.data.call_enabled === true,
               call_number: result.data.call_number || '',
               call_text: result.data.call_text || 'Call Us',
               header_text: result.data.header_text || '',
@@ -2111,6 +2586,15 @@ export default function NovaPremiumEnterprise() {
               whatsapp_mode: result.data.settings?.sidebar?.whatsapp?.mode || 'redirect',
               call_mode: result.data.settings?.sidebar?.call?.mode || 'redirect',
               authentication_enabled: result.data.settings?.authentication?.isEnabled || false,
+              skater_girl: (() => {
+                const sg = result.data.skater_girl || result.data.settings?.skater_girl || {};
+                return {
+                  enabled: sg.enabled !== false,
+                  messages: Array.isArray(sg.messages) && sg.messages.length > 0
+                    ? sg.messages
+                    : ["Let's talk business 🤝", "I've got answers 💡", "24×7 at your service ⚡", "Go on, test me! 😏", "What can I solve? ✅", "Psst... ask me! 🧠"],
+                };
+              })(),
               chat_background: (() => {
                 const cb = result.data.chat_background || result.data.settings?.chat_background;
                 return {
@@ -2121,13 +2605,24 @@ export default function NovaPremiumEnterprise() {
                 };
               })(),
             });
-            setIsConfigLoaded(true);
+
+            // Update skater girl visibility based on config
+            const sgConfig = result.data.skater_girl || result.data.settings?.skater_girl;
+            if (sgConfig && sgConfig.enabled === false) {
+              setShowSkater(false);
+            }
+          } else {
+            console.warn('⚠️ [Config] Unexpected response shape (still showing UI with defaults):', result);
           }
         } else {
-          console.warn('⚠️ [Config] Failed to fetch:', response.statusText);
+          console.warn('⚠️ [Config] Failed to fetch:', response.status, response.statusText);
         }
       } catch (error) {
         console.error('❌ [Config] Error:', error);
+      } finally {
+        // Critical: shell entrance + welcome animations are gated on isConfigLoaded.
+        // If the API is down (500) or offline, we still unlock the UI with built-in defaults.
+        setIsConfigLoaded(true);
       }
     };
 
@@ -2329,6 +2824,8 @@ export default function NovaPremiumEnterprise() {
   }, [currentLanguage, translate]);
 
   const languageButtonRef = useRef(null);
+  const langDropdownMotionRef = useRef(null);
+  const headerLangDropdownMotionRef = useRef(null);
 
   // State for translated placeholders
   const [placeholders, setPlaceholders] = useState({
@@ -2466,7 +2963,9 @@ export default function NovaPremiumEnterprise() {
 
 
   const messagesEndRef = useRef(null);
+  const welcomeBgRippleRef = useRef(null);
   const messagesScrollRef = useRef(null);
+  const userScrolledUpRef = React.useRef(false);
 
   const lastUserMessageRef = useRef(null);
   const messagesContextIdRef = useRef(null); // Tracks which conversation the current 'messages' state belongs to
@@ -2482,9 +2981,16 @@ export default function NovaPremiumEnterprise() {
     console.log('🔍 Auth form state:', showAuthForm, 'Message count:', messageCount, 'Authenticated:', isAuthenticated);
   }, [showAuthForm, messageCount, isAuthenticated]);
 
-  // Toggle body class when sidebar opens/closes
+  const isOmniEmbedded = useMemo(
+    () =>
+      typeof window !== 'undefined' &&
+      !!(window.__OMNIAGENT_CONFIG__?.embedMode ?? window.__OMNIAGENT_CONFIG__),
+    [],
+  );
+
+  /** Standalone app only: `body.sidebar-open` freezes page scroll (breaks host sites when embedded). */
   useEffect(() => {
-    if (sidebarOpen) {
+    if (sidebarOpen && !isOmniEmbedded) {
       document.body.classList.add('sidebar-open');
     } else {
       document.body.classList.remove('sidebar-open');
@@ -2493,6 +2999,16 @@ export default function NovaPremiumEnterprise() {
     return () => {
       document.body.classList.remove('sidebar-open');
     };
+  }, [sidebarOpen, isOmniEmbedded]);
+
+  /** Portaled welcome skater (z 9999) stacks after #root; reset scroll + rely on higher drawer z-index so top menu is visible. */
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const root = sidebarMobileRef.current;
+    if (!root) return;
+    root.scrollTop = 0;
+    const inner = root.querySelector(':scope > .flex-1');
+    if (inner) inner.scrollTop = 0;
   }, [sidebarOpen]);
 
   // Function to generate chat title from first user message
@@ -3447,43 +3963,61 @@ export default function NovaPremiumEnterprise() {
     { icon: Icons.calendar, label: 'Schedule Meeting', description: 'Book a consultation call', action: 'I would like to schedule a meeting' },
   ];
 
-  const sidebarIntroMotionCount = useMemo(() => {
-    let n = 3; // New conversation, mobile contact row, Recent chats
-    if (sidebarPrimaryActions.length > 0) {
-      n += 1 + sidebarPrimaryActions.length;
-    }
-    if (sidebarSocialActions.length > 0) {
-      n += 1 + sidebarSocialActions.length;
-    }
-    n += 1; // User / Guest footer
-    return n;
-  }, [sidebarPrimaryActions.length, sidebarSocialActions.length]);
-
-  const sidebarIntroDoneMs = useMemo(() => {
-    const lastStart =
-      Math.max(0, sidebarIntroMotionCount - 1) * SIDEBAR_INTRO_STAGGER_SEC +
-      SIDEBAR_USER_FOOTER_EXTRA_DELAY_SEC;
-    return Math.round((lastStart + SIDEBAR_INTRO_SPRING_BUFFER_SEC) * 1000);
-  }, [sidebarIntroMotionCount]);
-
-  const [welcomeAfterSidebarIntro, setWelcomeAfterSidebarIntro] = useState(false);
   useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const apply = () => setShellSidebarSlideEnabled(!mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
+    if (!isConfigLoaded) return;
+
+    const reduced = uiSprings.prefersReduced;
+    const sidebarXHidden = shellSidebarSlideEnabled && !reduced ? '-100%' : 0;
+
+    void shellSidebarControls.set({ x: sidebarXHidden });
+    void shellHeaderControls.set({ y: reduced ? 0 : -40, opacity: reduced ? 1 : 0 });
+    void shellMainControls.set({ opacity: reduced ? 1 : 0, scale: reduced ? 1 : 0.98 });
+
+    if (reduced) {
+      setWelcomeAfterSidebarIntro(true);
+      shellMountTimelineDoneRef.current = true;
+      return;
+    }
+
     setWelcomeAfterSidebarIntro(false);
-    const id = window.setTimeout(() => setWelcomeAfterSidebarIntro(true), sidebarIntroDoneMs);
-    return () => window.clearTimeout(id);
-  }, [sidebarIntroDoneMs]);
+    shellMountTimelineDoneRef.current = false;
 
-  /** User/Guest footer: reveal via timeout so it always runs after the last stagger slot (timing not tied to Framer transition.delay). */
-  const [sidebarUserReveal, setSidebarUserReveal] = useState(false);
-  useEffect(() => {
-    const ms = Math.round(
-      (Math.max(0, sidebarIntroMotionCount - 1) * SIDEBAR_INTRO_STAGGER_SEC +
-        SIDEBAR_USER_FOOTER_EXTRA_DELAY_SEC) *
-        1000,
-    );
-    const id = window.setTimeout(() => setSidebarUserReveal(true), ms);
-    return () => window.clearTimeout(id);
-  }, [sidebarIntroMotionCount]);
+    const sprSidebar = { type: 'spring', stiffness: 280, damping: 24 };
+    const sprHeader = { type: 'spring', stiffness: 300, damping: 25, mass: 0.8 };
+    const sprMain = { type: 'spring', stiffness: 300, damping: 25, mass: 0.8 };
+
+    void shellSidebarControls.start({
+      x: 0,
+      transition: { ...sprSidebar, delay: MOUNT_ENTRANCE_MS.sidebar / 1000 },
+    });
+    void shellHeaderControls.start({
+      y: 0,
+      opacity: 1,
+      transition: { ...sprHeader, delay: MOUNT_ENTRANCE_MS.header / 1000 },
+    });
+    void shellMainControls.start({
+      opacity: 1,
+      scale: 1,
+      transition: { ...sprMain, delay: MOUNT_ENTRANCE_MS.main / 1000 },
+    });
+
+    const mainReadyId = window.setTimeout(() => {
+      setWelcomeAfterSidebarIntro(true);
+      shellMountTimelineDoneRef.current = true;
+    }, MOUNT_ENTRANCE_MS.main);
+
+    return () => {
+      window.clearTimeout(mainReadyId);
+    };
+  }, [isConfigLoaded, uiSprings.prefersReduced, shellSidebarSlideEnabled]);
 
   /** Welcome input: show empty card first, then "Ask me anything" after card entrance completes. */
   const [welcomeAskPlaceholderVisible, setWelcomeAskPlaceholderVisible] = useState(false);
@@ -3493,27 +4027,127 @@ export default function NovaPremiumEnterprise() {
     !messagesLoading &&
     (messages.length === 0 || messages.filter((m) => m.isUser).length === 0);
 
+  const inputBoxRef = useRef(null);
+  /** Full welcome column (headline + composer + quick actions) — skater roams here, not on the composer. */
+  const [skaterFall, setSkaterFall] = useState(false);
+  const [showSkater, setShowSkater] = useState(chatbotConfig?.skater_girl?.enabled !== false);
+
+  const handleSkaterFallComplete = useCallback(() => {
+    setShowSkater(false);
+    setSkaterFall(false);
+    const el = inputBoxRef.current;
+    if (el) {
+      el.classList.add('skater-impact-shake');
+      window.setTimeout(() => {
+        el.classList.remove('skater-impact-shake');
+      }, 400);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!isEmptyWelcomeUIMain) {
-      welcomeInputCardAnimTrackedRef.current = false;
-      setWelcomeAskPlaceholderVisible(false);
+    if (isEmptyWelcomeUIMain) {
+      setShowSkater(true);
+      setSkaterFall(false);
     }
   }, [isEmptyWelcomeUIMain]);
 
   useEffect(() => {
-    if (!welcomeAfterSidebarIntro || !isConfigLoaded) {
+    if (!isEmptyWelcomeUIMain) {
       welcomeInputCardAnimTrackedRef.current = false;
       setWelcomeAskPlaceholderVisible(false);
+      return;
     }
-  }, [welcomeAfterSidebarIntro, isConfigLoaded]);
+    if (!isConfigLoaded) {
+      welcomeInputCardAnimTrackedRef.current = false;
+      setWelcomeAskPlaceholderVisible(false);
+      return;
+    }
+    if (uiSprings.prefersReduced) {
+      welcomeInputCardAnimTrackedRef.current = true;
+      setWelcomeAskPlaceholderVisible(true);
+      return;
+    }
+    welcomeInputCardAnimTrackedRef.current = false;
+    setWelcomeAskPlaceholderVisible(false);
+    const ms = MOUNT_ENTRANCE_COMPOSER_MS + 650;
+    const id = window.setTimeout(() => {
+      welcomeInputCardAnimTrackedRef.current = true;
+      setWelcomeAskPlaceholderVisible(true);
+    }, ms);
+    return () => window.clearTimeout(id);
+  }, [isEmptyWelcomeUIMain, isConfigLoaded, uiSprings.prefersReduced]);
+
+  useEffect(() => {
+    if (!isConfigLoaded || !isEmptyWelcomeUIMain) return;
+
+    const reduced = uiSprings.prefersReduced;
+    const welcomeCardSpring = { type: 'spring', stiffness: 540, damping: 26, mass: 0.58 };
+
+    void welcomeComposerControls.set({
+      opacity: reduced ? 1 : 0,
+      y: reduced ? 0 : 20,
+      scale: reduced ? 1 : 0.96,
+    });
+    void welcomeQuickActionsControls.set({
+      opacity: reduced ? 1 : 0,
+      y: reduced ? 0 : 20,
+      scale: reduced ? 1 : 0.96,
+    });
+
+    if (reduced) {
+      if (shellMountTimelineDoneRef.current) {
+        setWelcomeAfterSidebarIntro(true);
+      }
+      return;
+    }
+
+    void welcomeComposerControls.start({
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: {
+        ...welcomeCardSpring,
+        delay: MOUNT_ENTRANCE_COMPOSER_MS / 1000,
+      },
+    });
+    void welcomeQuickActionsControls.start({
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: {
+        ...welcomeCardSpring,
+        delay: MOUNT_ENTRANCE_MS.quickActions / 1000,
+      },
+    });
+
+    if (shellMountTimelineDoneRef.current) {
+      setWelcomeAfterSidebarIntro(true);
+    }
+  }, [isConfigLoaded, isEmptyWelcomeUIMain, uiSprings.prefersReduced]);
 
   /** Chat BG: stay at normal scale during pops; after they finish, slow zoom-in (not during pop, not instant). */
   const [chatBgWelcomeZoomComplete, setChatBgWelcomeZoomComplete] = useState(false);
+  /**
+   * Ken Burns zoom reached end scale (or never ran). When false, keep motion blur mounted even on thread
+   * so sending a message mid-zoom doesn’t swap to static and kill the animation.
+   */
+  const [chatBgKenBurnsFinished, setChatBgKenBurnsFinished] = useState(true);
+  const chatBgPrevWelcomeZoomGateRef = useRef(false);
+  useEffect(() => {
+    if (!hasChatBackground) return;
+    const gate = chatBgWelcomeZoomComplete;
+    if (!gate) {
+      chatBgPrevWelcomeZoomGateRef.current = false;
+    } else if (!chatBgPrevWelcomeZoomGateRef.current && isEmptyWelcomeUIMain) {
+      setChatBgKenBurnsFinished(false);
+    }
+    chatBgPrevWelcomeZoomGateRef.current = gate;
+  }, [hasChatBackground, chatBgWelcomeZoomComplete, isEmptyWelcomeUIMain]);
+
   useEffect(() => {
     if (!hasChatBackground) return;
 
     if (!isEmptyWelcomeUIMain) {
-      setChatBgWelcomeZoomComplete(true);
       return;
     }
 
@@ -3522,7 +4156,7 @@ export default function NovaPremiumEnterprise() {
     const welcomePopReady = welcomeAfterSidebarIntro && isConfigLoaded;
     if (!welcomePopReady) return;
 
-    const stagger = 0.42;
+    const stagger = WELCOME_INTRO_STAGGER_SEC;
     const hasTw = Boolean(activeConversationId && messages.length === 0);
     const stepAfterTextarea = hasTw ? 2 : 1;
     const textareaDelay = hasTw ? stagger : 0;
@@ -3544,7 +4178,7 @@ export default function NovaPremiumEnterprise() {
       return;
     }
 
-    const sendStart = 0.18 + 2 * 0.32;
+    const sendStart = 0.1 + 2 * 0.2;
     const toolbarEndSec = tPlaceholder + sendStart + spring;
     const delayMs = Math.max(quickEndSec, toolbarEndSec) * 1000;
     const id = window.setTimeout(runZoom, delayMs);
@@ -3563,8 +4197,10 @@ export default function NovaPremiumEnterprise() {
 
   /** Smooth “feed” scroll: adaptive gain so long replies glide up professionally. */
   useEffect(() => {
+    if (!messagesScrollRef.current) return;
     const panel = messagesScrollRef.current;
     if (!panel) return;
+    if (userScrolledUpRef.current) return;
 
     const hasUserThread = messages.some((m) => m.isUser);
     if (!hasUserThread) {
@@ -3606,6 +4242,12 @@ export default function NovaPremiumEnterprise() {
       if (rafId != null) cancelAnimationFrame(rafId);
     };
   }, [messages, streamingResponse, isStreaming]);
+
+  useEffect(() => {
+    if (isStreaming) {
+      userScrolledUpRef.current = false;
+    }
+  }, [isStreaming]);
 
   // Auto-save messages to backend when messages change and streaming is complete
   useEffect(() => {
@@ -3694,14 +4336,15 @@ export default function NovaPremiumEnterprise() {
     const handleClickOutside = (event) => {
       // Use both the container class and check if the click is within the portal
       const isDropdownClick = event.target.closest('.language-selector-container') ||
-        event.target.closest('.language-dropdown-portal');
+        event.target.closest('.language-dropdown-portal') ||
+        event.target.closest('.lang-dropdown-panel');
       const isLogoutDropdownClick = event.target.closest('.logout-dropdown-container');
 
       if (headerLangDropdownOpen && !isDropdownClick) {
         setHeaderLangDropdownOpen(false);
       }
-      if (sidebarLangDropdownOpen && !isDropdownClick) {
-        setSidebarLangDropdownOpen(false);
+      if (langDropdownOpen && !isDropdownClick) {
+        setLangDropdownOpen(false);
       }
       if (logoutDropdownOpen && isAuthenticated && !isLogoutDropdownClick) {
         setLogoutDropdownOpen(false);
@@ -3709,7 +4352,7 @@ export default function NovaPremiumEnterprise() {
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
-  }, [headerLangDropdownOpen, sidebarLangDropdownOpen, logoutDropdownOpen]);
+  }, [headerLangDropdownOpen, langDropdownOpen, logoutDropdownOpen]);
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -3758,7 +4401,12 @@ export default function NovaPremiumEnterprise() {
   }, []);
 
   const handleSend = async (text = inputValue, sendOptions = {}) => {
+    userScrolledUpRef.current = false;
     if (!text.trim() && !selectedFile) return;
+
+    if (isEmptyWelcomeUIMain && showSkater) {
+      setSkaterFall(true);
+    }
 
     const displayText =
       typeof sendOptions.displayText === 'string' && sendOptions.displayText.trim()
@@ -3794,7 +4442,16 @@ export default function NovaPremiumEnterprise() {
       attachment: currentAttachment
     };
 
+    const isFirstUserMessage = messages.filter(msg => msg.isUser).length === 0;
+
+    setSendAnimKey((k) => k + 1);
+    setJustSent(true);
+    window.setTimeout(() => setJustSent(false), 280);
+
     setMessages(prev => [...prev, userMsg]);
+    if (isFirstUserMessage) {
+      setUserBubbleFlyInId(userMsg.id);
+    }
 
     // Store user message reference for bot response
     lastUserMessageRef.current = {
@@ -3803,7 +4460,6 @@ export default function NovaPremiumEnterprise() {
     };
 
     // Update conversation title if this is the first user message
-    const isFirstUserMessage = messages.filter(msg => msg.isUser).length === 0;
     if (isFirstUserMessage && text.trim()) {
       const newTitle = generateChatTitle(displayText);
       setConversations(prev =>
@@ -4308,7 +4964,7 @@ export default function NovaPremiumEnterprise() {
 
           let availableTemplates = proposalConfig?.templates || [];
           if (intentConfig?.template_choice_allowlist && intentConfig.template_choice_allowlist.length > 0) {
-            availableTemplates = proposalConfig.templates.filter(t =>
+            availableTemplates = (proposalConfig?.templates || []).filter((t) =>
               intentConfig.template_choice_allowlist.includes(t.id) ||
               intentConfig.template_choice_allowlist.includes(t._id)
             );
@@ -5085,7 +5741,7 @@ export default function NovaPremiumEnterprise() {
       // Get available templates based on allowlist (same logic as confirmation)
       let availableTemplates = proposalConfig?.templates || [];
       if (intentConfig?.template_choice_allowlist && intentConfig.template_choice_allowlist.length > 0) {
-        availableTemplates = proposalConfig.templates.filter(t =>
+        availableTemplates = (proposalConfig?.templates || []).filter((t) =>
           intentConfig.template_choice_allowlist.includes(t.id) ||
           intentConfig.template_choice_allowlist.includes(t._id)
         );
@@ -5297,6 +5953,7 @@ export default function NovaPremiumEnterprise() {
   /** Header center nav (About / Services / Contact): full prompt to RAG, short label in the user bubble */
   const handleHeaderNavKnowledge = (prompt, shortLabel) => {
     if (!prompt?.trim() || isStreaming || isAIProcessing) return;
+    setHeaderNavActiveKey(shortLabel || prompt);
     cancelChatFlows();
     void handleSend(prompt, {
       displayText: shortLabel || prompt,
@@ -5425,17 +6082,12 @@ export default function NovaPremiumEnterprise() {
     }
   };
 
-  // Sidebar: staggered pop-in top-to-bottom (delay ladder resets each render)
-  let sidebarAnimStep = 0;
-  const sidebarSpring = { type: 'spring', stiffness: 420, damping: 19, mass: 0.78 };
-  const sidebarPopState = {
-    initial: { opacity: 0, scale: 0.86 },
-    animate: { opacity: 1, scale: 1 },
-  };
-  const sidebarPopTransition = () => ({ ...sidebarSpring, delay: SIDEBAR_INTRO_STAGGER_SEC * sidebarAnimStep++ });
-
   return (
-    <div className={`h-screen w-screen ${t.bg} flex overflow-hidden transition-colors duration-300`}>
+    <div
+      className={`omni-chat-shell h-screen w-screen ${t.bg} flex overflow-hidden transition-colors duration-300${
+        sidebarOpen ? ' sidebar-open' : ''
+      }`}
+    >
       <style>{`
         * {
           font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
@@ -5635,6 +6287,45 @@ export default function NovaPremiumEnterprise() {
           to { opacity: 1; transform: translateX(0); }
         }
         
+        @property --angle {
+          syntax: '<angle>';
+          initial-value: 0deg;
+          inherits: false;
+        }
+
+        @keyframes borderSpin {
+          to {
+            --angle: 360deg;
+          }
+        }
+
+        .manus-input-gradient-shell {
+          width: 100%;
+          min-width: 0;
+          max-width: 780px;
+          padding: 2px;
+          border-radius: 22px;
+          box-sizing: border-box;
+          background: conic-gradient(from var(--angle), #f97316, #06b6d4, #6366f1, #f97316);
+          animation: borderSpin 6s linear infinite;
+          opacity: 0.88;
+          transition: opacity 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        .manus-input-gradient-shell:focus-within {
+          opacity: 1;
+          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+        }
+
+        .manus-input-gradient-shell--reduced {
+          animation: none;
+          opacity: 1;
+        }
+
+        .manus-input-gradient-shell--reduced:focus-within {
+          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+        }
+
         .manus-input-box-large {
           width: 100% !important;
           min-width: 0 !important;
@@ -5645,31 +6336,54 @@ export default function NovaPremiumEnterprise() {
           background: #ffffff;
           border-radius: 20px;
           padding: 16px 20px 12px 20px;
-          box-sizing: border-box !important;  /* Padding included in width */
+          box-sizing: border-box !important;
           display: flex;
           flex-direction: column;
           justify-content: flex-start;
           position: relative;
           z-index: 1;
-          /* Rainbow border animation - always active */
-          border: 1px solid transparent;
-          background:
-            linear-gradient(#fff, #fff) padding-box,
-            conic-gradient(from var(--angle), #ff0040, #ff6b00, #ffd500, #00d4aa, #0088ff, #8b5cf6, #ff0040) border-box;
-          animation: rotate-rainbow 2s linear infinite;
+          border: none;
         }
 
-        /* CSS custom property for rainbow rotation */
-        @property --angle {
-          syntax: '<angle>';
-          initial-value: 0deg;
-          inherits: false;
+        .new-conversation-premium {
+          position: relative;
+          overflow: hidden;
         }
 
+        .new-conversation-premium::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(
+            105deg,
+            transparent 0%,
+            transparent 38%,
+            rgba(255, 255, 255, 0.38) 50%,
+            transparent 62%,
+            transparent 100%
+          );
+          background-size: 220% 100%;
+          animation: newConvShimmer 3s linear infinite;
+          pointer-events: none;
+        }
 
-        @keyframes rotate-rainbow {
-          to {
-            --angle: 360deg;
+        @keyframes newConvShimmer {
+          0% {
+            background-position: 200% 0;
+          }
+          100% {
+            background-position: -200% 0;
+          }
+        }
+
+        .premium-troika-headline {
+          margin-bottom: 1.25rem;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .new-conversation-premium::after {
+            animation: none;
+            opacity: 0;
           }
         }
 
@@ -5833,6 +6547,11 @@ export default function NovaPremiumEnterprise() {
           margin-bottom: 12px;
         }
 
+        /* Flush trailing margin on nested markdown blocks (not only direct children). */
+        .markdown-content *:last-child {
+          margin-bottom: 0 !important;
+        }
+
         .markdown-content ul,
         .markdown-content ol {
           margin: 12px 0;
@@ -5947,8 +6666,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           /* ===== REMOVE FLOATING CARD EFFECT ===== */
-          .h-screen.w-screen.bg-slate-50,
-          .flex.overflow-hidden {
+          .omni-chat-shell.h-screen.w-screen {
             background: #ffffff !important;
             border-radius: 0 !important;
             box-shadow: none !important;
@@ -5971,7 +6689,7 @@ export default function NovaPremiumEnterprise() {
             max-width: 100vw !important;
             height: 100dvh !important; /* Use dynamic viewport height */
             background: #ffffff !important;
-            z-index: 9999 !important;
+            z-index: 10050 !important;
             transform: translateX(-100%) !important;  /* Hidden off-screen */
             transition: transform 0.3s ease-in-out !important;
             box-shadow: none !important;
@@ -6011,7 +6729,7 @@ export default function NovaPremiumEnterprise() {
             height: 100vh !important;
             height: 100dvh !important;
             background: rgba(0, 0, 0, 0.5) !important;
-            z-index: 9998 !important;
+            z-index: 10040 !important;
             opacity: 0 !important;
             visibility: hidden !important;
             transition: opacity 0.3s ease !important;
@@ -6102,6 +6820,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           /* ===== INPUT BOX - PROPER WIDTH ===== */
+          .manus-input-gradient-shell,
           .manus-input-box-large,
           .manus-input-box-mobile {
             width: 100% !important;
@@ -6313,9 +7032,10 @@ export default function NovaPremiumEnterprise() {
             justify-content: flex-start !important;
             flex: 1 !important;  /* Take available height */
             min-height: 0 !important;  /* Allow shrinking */
-            padding: 20px !important;
+            padding: 12px 12px 12px !important;
             overflow-y: auto !important;  /* Enable scrolling */
             max-height: calc(100vh - 200px) !important;  /* Leave room for input */
+            scroll-padding-top: 8px;
           }
 
           /* Message bubbles always centered */
@@ -6402,7 +7122,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           .messages-container-mobile:not(.welcome-mode) {
-            padding: 16px 12px !important;
+            padding: 12px 10px 12px !important;
           }
 
           .messages-container-mobile.welcome-mode {
@@ -6430,7 +7150,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           .messages-container-mobile:not(.welcome-mode) {
-            padding: 20px 16px !important;
+            padding: 26px 16px 20px !important;
           }
 
           .messages-container-mobile.welcome-mode {
@@ -6637,7 +7357,7 @@ export default function NovaPremiumEnterprise() {
           .sidebar-mobile {
             width: 100vw !important;
             max-width: 100vw !important;
-            z-index: 9999 !important;
+            z-index: 10050 !important;
           }
 
           /* Main Content Area - ENSURE PERFECT CENTERING */
@@ -6841,7 +7561,7 @@ export default function NovaPremiumEnterprise() {
           .message-bubble-mobile {
             width: 100% !important;
             max-width: 100% !important;
-            padding: 0 12px !important;
+            padding: 0 8px !important;
             margin: 0 !important;
             box-sizing: border-box !important;
           }
@@ -6885,7 +7605,7 @@ export default function NovaPremiumEnterprise() {
           .messages-container-mobile > div {
             width: 100% !important;
             max-width: 100% !important;
-            padding: 16px 12px !important;
+            padding: 8px 8px !important;
             box-sizing: border-box !important;
           }
 
@@ -6999,7 +7719,11 @@ export default function NovaPremiumEnterprise() {
         }
       `}</style>
 
-      <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AnimatePresence>
+        {settingsOpen && (
+          <SettingsPanel key="settings-panel" onClose={() => setSettingsOpen(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Proposal Modal */}
       {showProposalModal && proposalConfig?.templates && (
@@ -7241,377 +7965,464 @@ export default function NovaPremiumEnterprise() {
         accept=".pdf,image/*"
       />
 
-      {/* Mobile Sidebar Overlay */}
-      <div
-        className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`}
-        onClick={() => setSidebarOpen(false)}
-      />
-
-      {/* Sidebar */}
-      <div className={`w-80 ${t.sidebar} border-r ${t.border} flex flex-col sidebar-mobile ${sidebarOpen ? 'open' : ''}`}>
-        {/* Header — no pop-in animation (rest of sidebar animates) */}
-        <div className={`px-6 py-3 min-h-[76.8px] flex flex-col justify-center border-b ${t.borderLight}`}>
-          <div className="flex items-center justify-between mb-0">
-            <div className="flex items-center gap-3">
-              {chatbotConfig?.sidebar_branding?.enabled && chatbotConfig?.sidebar_branding?.branding_logo_url ? (
-                <a
-                  href={chatbotConfig.sidebar_branding.branding_logo_link || '#'}
-                  target={chatbotConfig.sidebar_branding.branding_logo_link ? '_blank' : undefined}
-                  rel={chatbotConfig.sidebar_branding.branding_logo_link ? 'noopener noreferrer' : undefined}
-                  className="block"
-                >
-                  <img
-                    src={chatbotConfig.sidebar_branding.branding_logo_url}
-                    alt={chatbotConfig.sidebar_branding.branding_text || 'AI Assistant'}
-                    className="w-10 h-10 rounded-xl object-cover"
-                    onError={(e) => {
-                      e.target.src = OmniAgentLogo; // Fallback to default logo
-                    }}
-                  />
-                </a>
-              ) : (
-                <img src={OmniAgentLogo} alt="OmniAgent" className="w-10 h-10 rounded-xl object-cover" />
-              )}
-              <div>
-                <h1 className={`font-semibold ${t.text}`}>
-                  <T>{chatbotConfig?.sidebar_branding?.branding_company || 'Troika Tech'}</T>
-                </h1>
-                <div className="flex items-center gap-2">
-                  <p className={`text-xs ${t.textMuted}`}>
-                    {/* ✅ FIX: Only show auth required if auth is actually enabled */}
-                    {(() => {
-                      const shouldShowAuth = chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT;
-                      if (shouldShowAuth) console.log('🔐 [AUTH] Showing sidebar auth required:', { authEnabled: chatbotConfig?.authentication_enabled, authenticated: isAuthenticated, count: messageCount });
-                      return shouldShowAuth ? <T>Authentication Required</T> : <T>{chatbotConfig?.sidebar_branding?.branding_text || 'Enterprise'}</T>;
-                    })()}
-                  </p>
-                </div>
-              </div>
-            </div>
-            {/* Close button for mobile sidebar */}
-            <button
+      {(() => {
+        const omniMobileDrawer = (
+          <>
+            <div
+              className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`}
               onClick={() => setSidebarOpen(false)}
-              className="sidebar-close-btn md:hidden"
-              aria-label="Close sidebar"
+            />
+
+            <motion.div
+              ref={sidebarMobileRef}
+              className={`w-80 ${t.sidebar} border-r ${t.border} flex flex-col sidebar-mobile ${sidebarOpen ? 'open' : ''}`}
+              style={{ willChange: 'transform' }}
             >
-              <X className="w-5 h-5 text-gray-600" />
-            </button>
-          </div>
-        </div>
-
-        {/* New Chat - MOVED TO TOP */}
-        <motion.div {...sidebarPopState} transition={sidebarPopTransition()} className="p-4">
-          <button
-            type="button"
-            onClick={() => {
-              if (!hasFullAccess) return;
-
-              console.log('🆕 Starting new conversation (Full State Reset)...');
-
-              // 1. Reset Conversation ID & Messages
-              setActiveConversationId(generateUniqueConversationId()); // Generate NEW ID immediately
-              setActiveConversation(0);
-              messagesContextIdRef.current = null;
-              setMessages([]);
-              setMessagesLoading(false);
-              setShowActions(true);
-
-              // 2. 🛑 CRITICAL: Clear all Context & Flow States
-              setIntentContextData(null);
-              setProposalConfirmationPending(false);
-              setEmailConfirmationPending(false);
-              setCallingConfirmationPending(false);
-              setTemplateSelectionPending(false);
-              setEmailTemplateSelectionPending(false);
-              setChannelSelectionPending(false);
-              setSelectedChannel(null);
-              setSelectedEmailTemplate(null);
-
-              // 3. Focus Input
-              setTimeout(() => {
-                const input = document.querySelector('input[type="text"], textarea');
-                if (input) input.focus();
-              }, 100);
-            }}
-            disabled={!hasFullAccess}
-            className={`w-full py-3 text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 ${hasFullAccess
-              ? `${t.button} hover:opacity-90`
-              : 'bg-[#02066F] text-white cursor-not-allowed'
-              }`}
-          >
-            {Icons.plus}
-            <T>New Conversation</T>
-          </button>
-        </motion.div>
-
-        {/* Mobile Quick Contact Section - WhatsApp और Call Buttons */}
         <motion.div
-          {...sidebarPopState}
-          transition={sidebarPopTransition()}
-          className="flex items-center gap-3 mb-4 px-4 md:px-6 md:mb-6 md:hidden"
+          className="flex h-full min-h-0 flex-1 flex-col"
+          initial={
+            shellSidebarSlideEnabled && !uiSprings.prefersReduced ? { x: '-100%' } : { x: 0 }
+          }
+          animate={
+            shellSidebarSlideEnabled && !uiSprings.prefersReduced
+              ? shellSidebarControls
+              : { x: 0, transition: { duration: 0 } }
+          }
         >
-          <button
-            onClick={() => {
-              if (chatbotConfig.whatsapp_mode === 'premium_modal') {
-                setShowPremiumModal(true);
-                return;
-              }
-              const number = chatbotConfig.whatsapp_number?.replace(/\D/g, '');
-              if (number) window.open(`https://wa.me/${number}`, '_blank');
-            }}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#25D366] text-white text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
-          >
-            <span className="scale-110">{Icons.whatsapp}</span>
-            <span><T>WhatsApp</T></span>
-          </button>
-          <button
-            onClick={() => {
-              if (chatbotConfig.call_mode === 'premium_modal') {
-                setShowPremiumModal(true);
-                return;
-              }
-              const number = chatbotConfig.call_number?.replace(/\D/g, '');
-              if (number) window.location.href = `tel:${number}`;
-            }}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#02066F] text-white text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
-          >
-            <span className="scale-110">{Icons.phone}</span>
-            <span>{chatbotConfig.call_text || 'Call Us'}</span>
-          </button>
-        </motion.div>
-
-        {/* Recent button + Shortcuts; open panel fills this flex region down to Socials (covers Shortcuts) */}
-        <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
-          <motion.div {...sidebarPopState} transition={sidebarPopTransition()} className="shrink-0 px-2 pb-2 md:px-4">
-            <button
-              type="button"
-              onClick={() => setRecentChatsOpen((open) => !open)}
-              aria-expanded={recentChatsOpen}
-              className={`flex w-full items-center justify-between gap-2 rounded-xl border ${t.border} px-3 py-2.5 text-left ${t.input} ${t.cardHover} transition-colors`}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div
+              className={`relative shrink-0 px-6 py-3 min-h-[76.8px] flex flex-col justify-center border-b ${t.borderLight}`}
             >
-              <span className={`text-sm font-semibold ${t.text}`}><T>Recent chats</T></span>
-              <span className={`${t.textMuted} shrink-0 transition-transform duration-200 ${recentChatsOpen ? 'rotate-180' : ''}`}>
-                {Icons.chevronDown}
-              </span>
-            </button>
-          </motion.div>
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {sidebarPrimaryActions.length > 0 && (
-              <div className="relative z-0 shrink-0 [&>div:last-child>button]:border-b-0">
-                <motion.div
-                  {...sidebarPopState}
-                  transition={sidebarPopTransition()}
-                  className="px-2 py-1 md:px-4 md:py-2 flex-shrink-0"
-                >
-                  <p className={`text-xs font-semibold ${t.textMuted} uppercase tracking-wider`}><T>Shortcuts</T></p>
-                </motion.div>
-                {sidebarPrimaryActions.map((action) => (
-                  <motion.div key={action.key} {...sidebarPopState} transition={sidebarPopTransition()}>
-                    <SidebarActionListItem
-                      icon={action.icon}
-                      label={action.label}
-                      description={action.description}
-                      onClick={() => handleSidebarQuickActionClick(action)}
-                    />
-                  </motion.div>
-                ))}
-              </div>
-            )}
-            {recentChatsOpen && (
-              <div
-                className={`absolute inset-0 z-20 flex flex-col rounded-none ${t.sidebar}`}
-              >
-                <div className="shrink-0 border-b border-slate-200/80 px-3 py-2 md:px-4 md:py-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder={placeholders.search}
-                      value={sidebarSearch}
-                      onChange={(e) => setSidebarSearch(e.target.value)}
-                      className={`w-full rounded-xl border ${t.border} px-4 py-2.5 pl-10 text-sm ${t.input} ${t.text} transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-                    />
-                    <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${t.textMuted}`}>{Icons.search}</span>
-                  </div>
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
-                  {conversations.length === 0 ? (
-                    <p className={`px-3 py-3 text-center text-xs ${t.textMuted} md:px-4`}><T>No conversations yet</T></p>
-                  ) : (
-                    conversations.map((conv) => (
-                      <ConversationItem
-                        key={conv.id}
-                        conversation={{
-                          ...conv,
-                          title: <T>{conv.title}</T>,
-                          preview: <T>{conv.preview}</T>,
-                          initials: getBrandingInitials(chatbotConfig) || conv.initials
-                        }}
-                        isActive={activeConversationId === conv.id}
-                        onClick={() => {
-                          handleConversationSelect(conv.id);
-                          setRecentChatsOpen(false);
+              <div className="relative flex items-center justify-between mb-0">
+                <div className="flex items-center gap-3">
+                  {chatbotConfig?.sidebar_branding?.enabled && chatbotConfig?.sidebar_branding?.branding_logo_url ? (
+                    <a
+                      href={chatbotConfig.sidebar_branding.branding_logo_link || '#'}
+                      target={chatbotConfig.sidebar_branding.branding_logo_link ? '_blank' : undefined}
+                      rel={chatbotConfig.sidebar_branding.branding_logo_link ? 'noopener noreferrer' : undefined}
+                      className="block"
+                    >
+                      <img
+                        src={chatbotConfig.sidebar_branding.branding_logo_url}
+                        alt={chatbotConfig.sidebar_branding.branding_text || 'AI Assistant'}
+                        className="w-10 h-10 rounded-xl object-cover"
+                        onError={(e) => {
+                          e.target.src = OmniAgentLogo;
                         }}
                       />
-                    ))
+                    </a>
+                  ) : (
+                    <img src={OmniAgentLogo} alt="OmniAgent" className="w-10 h-10 rounded-xl object-cover" />
                   )}
+                  <div>
+                    <h1 className={`font-semibold ${t.text}`}>
+                      <T>{chatbotConfig?.sidebar_branding?.branding_company || 'Troika Tech'}</T>
+                    </h1>
+                    <div className="flex items-center gap-2">
+                      <p className={`text-xs ${t.textMuted}`}>
+                        {(() => {
+                          const shouldShowAuth = chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT;
+                          if (shouldShowAuth) console.log('🔐 [AUTH] Showing sidebar auth required:', { authEnabled: chatbotConfig?.authentication_enabled, authenticated: isAuthenticated, count: messageCount });
+                          return shouldShowAuth ? <T>Authentication Required</T> : <T>{chatbotConfig?.sidebar_branding?.branding_text || 'Enterprise'}</T>;
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="sidebar-close-btn md:hidden"
+                  aria-label="Close sidebar"
+                >
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
+
+            <div className="shrink-0">
+              <div className="p-4 pb-2">
+                <motion.button
+                  type="button"
+                  className={`new-conversation-premium relative w-full overflow-hidden py-3 text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 ${hasFullAccess
+                    ? `${t.button} hover:opacity-95`
+                    : 'bg-[#02066F] text-white cursor-not-allowed'
+                    }`}
+                  disabled={!hasFullAccess}
+                  onClick={(e) => {
+                    if (!hasFullAccess) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const rid = `${Date.now()}-${Math.random()}`;
+                    setNewConvRipples((prev) => [...prev, { id: rid, x: e.clientX - rect.left, y: e.clientY - rect.top }]);
+                    window.setTimeout(() => {
+                      setNewConvRipples((prev) => prev.filter((x) => x.id !== rid));
+                    }, 520);
+
+                    console.log('🆕 Starting new conversation (Full State Reset)...');
+                    setActiveConversationId(generateUniqueConversationId());
+                    setActiveConversation(0);
+                    messagesContextIdRef.current = null;
+                    setMessages([]);
+                    setMessagesLoading(false);
+                    setShowActions(true);
+                    setIntentContextData(null);
+                    setProposalConfirmationPending(false);
+                    setEmailConfirmationPending(false);
+                    setCallingConfirmationPending(false);
+                    setTemplateSelectionPending(false);
+                    setEmailTemplateSelectionPending(false);
+                    setChannelSelectionPending(false);
+                    setSelectedChannel(null);
+                    setSelectedEmailTemplate(null);
+                    setTimeout(() => {
+                      const input = document.querySelector('input[type="text"], textarea');
+                      if (input) input.focus();
+                    }, 100);
+                  }}
+                  whileHover={
+                    hasFullAccess && !uiSprings.prefersReduced
+                    ? {
+                        scale: 1.03,
+                        y: -2,
+                        boxShadow: '0 8px 24px rgba(2,6,111,0.35)',
+                      }
+                    : undefined
+                  }
+                  whileTap={hasFullAccess && !uiSprings.prefersReduced ? { scale: 0.95 } : undefined}
+                  transition={uiSprings.snappy}
+                >
+                  {newConvRipples.map((ripple) => (
+                    <motion.span
+                      key={ripple.id}
+                      className="pointer-events-none absolute rounded-full bg-white"
+                      style={{
+                        left: ripple.x,
+                        top: ripple.y,
+                        width: 10,
+                        height: 10,
+                        marginLeft: -5,
+                        marginTop: -5,
+                      }}
+                      initial={{ scale: 0, opacity: 0.3 }}
+                      animate={{ scale: 2.5, opacity: 0 }}
+                      transition={{ duration: uiSprings.prefersReduced ? 0 : 0.5, ease: 'easeOut' }}
+                    />
+                  ))}
+                  <span className="relative z-[1] flex items-center justify-center gap-2">
+                    {Icons.plus}
+                    <T>New Conversation</T>
+                  </span>
+                </motion.button>
+              </div>
+              {(chatbotConfig.whatsapp_enabled || chatbotConfig.call_enabled) && (
+              <div className="flex items-center gap-3 mb-4 px-4 md:px-6 md:mb-6 md:hidden">
+                {chatbotConfig.whatsapp_enabled && (
+                <button
+                  onClick={() => {
+                    if (chatbotConfig.whatsapp_mode === 'premium_modal') {
+                      setShowPremiumModal(true);
+                      return;
+                    }
+                    const number = chatbotConfig.whatsapp_number?.replace(/\D/g, '');
+                    if (number) window.open(`https://wa.me/${number}`, '_blank');
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#25D366] text-white text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
+                >
+                  <span className="scale-110">{Icons.whatsapp}</span>
+                  <span><T>WhatsApp</T></span>
+                </button>
+                )}
+                {chatbotConfig.call_enabled && (
+                <button
+                  onClick={() => {
+                    if (chatbotConfig.call_mode === 'premium_modal') {
+                      setShowPremiumModal(true);
+                      return;
+                    }
+                    const number = chatbotConfig.call_number?.replace(/\D/g, '');
+                    if (number) window.location.href = `tel:${number}`;
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#02066F] text-white text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
+                >
+                  <span className="scale-110">{Icons.phone}</span>
+                  <span>{chatbotConfig.call_text || 'Call Us'}</span>
+                </button>
+                )}
+              </div>
+              )}
+              {resolvedHeaderNavItems.length > 0 && (
+                <div className="mb-4 px-4 md:hidden">
+                  <p className={`mb-2 text-xs font-semibold uppercase tracking-wider ${t.textMuted}`}><T>Company</T></p>
+                  <div className="flex flex-col gap-1">
+                    {resolvedHeaderNavItems.map(({ label, prompt }, idx) => (
+                      <button
+                        key={`sidebar-nav-${label}-${idx}`}
+                        type="button"
+                        disabled={isStreaming || isAIProcessing}
+                        onClick={() => {
+                          handleHeaderNavKnowledge(prompt, label);
+                          setSidebarOpen(false);
+                        }}
+                        className={`w-full rounded-xl border ${t.border} px-3 py-2.5 text-left text-sm font-semibold transition-colors ${t.text} ${t.cardHover} disabled:pointer-events-none disabled:opacity-45`}
+                      >
+                        <T>{label}</T>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="shrink-0 px-2 pb-2 md:px-4">
+              <button
+                type="button"
+                onClick={() => setRecentChatsOpen((open) => !open)}
+                aria-expanded={recentChatsOpen}
+                className={`flex w-full items-center justify-between gap-2 rounded-xl border ${t.border} px-3 py-2.5 text-left ${t.input} ${t.cardHover} transition-colors`}
+              >
+                <span className={`text-sm font-semibold ${t.text}`}><T>Recent chats</T></span>
+                <span className={`${t.textMuted} shrink-0 transition-transform duration-200 ${recentChatsOpen ? 'rotate-180' : ''}`}>
+                  {Icons.chevronDown}
+                </span>
+              </button>
+            </div>
+
+            <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col">
+              {sidebarPrimaryActions.length > 0 && (
+                <div className="relative z-0 shrink-0 [&>div:last-child>button]:border-b-0">
+                  <div className="px-2 py-1 md:px-4 md:py-2 flex-shrink-0">
+                    <p className={`text-xs font-semibold ${t.textMuted} uppercase tracking-wider`}><T>Shortcuts</T></p>
+                  </div>
+                  {sidebarPrimaryActions.map((action) => (
+                    <div key={action.key}>
+                      <SidebarActionListItem
+                        icon={action.icon}
+                        label={action.label}
+                        description={action.description}
+                        onClick={() => handleSidebarQuickActionClick(action)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {recentChatsOpen && (
+                <div
+                  className={`absolute inset-0 z-20 flex flex-col rounded-none ${t.sidebar}`}
+                >
+                  <div className="shrink-0 border-b border-slate-200/80 px-3 py-2 md:px-4 md:py-3">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={placeholders.search}
+                        value={sidebarSearch}
+                        onChange={(e) => setSidebarSearch(e.target.value)}
+                        className={`w-full rounded-xl border ${t.border} px-4 py-2.5 pl-10 text-sm ${t.input} ${t.text} transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
+                      />
+                      <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${t.textMuted}`}>{Icons.search}</span>
+                    </div>
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-thin">
+                    {conversations.length === 0 ? (
+                      <p className={`px-3 py-3 text-center text-xs ${t.textMuted} md:px-4`}><T>No conversations yet</T></p>
+                    ) : (
+                      <LayoutGroup>
+                        {conversations.map((conv) => (
+                          <ConversationItem
+                            key={conv.id}
+                            conversation={{
+                              ...conv,
+                              title: <T>{conv.title}</T>,
+                              preview: <T>{conv.preview}</T>,
+                              initials: getBrandingInitials(chatbotConfig) || conv.initials
+                            }}
+                            isActive={activeConversationId === conv.id}
+                            onClick={() => {
+                              handleConversationSelect(conv.id);
+                              setRecentChatsOpen(false);
+                            }}
+                          />
+                        ))}
+                      </LayoutGroup>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {sidebarSocialActions.length > 0 && (
+              <div className="px-2 py-2 md:px-4 md:py-3 border-t border-slate-200/50">
+                <div className="mb-1 md:mb-2">
+                  <p className={`text-xs font-semibold ${t.textMuted} uppercase tracking-wider`}><T>Socials</T></p>
+                </div>
+                <div className="flex gap-1">
+                  {sidebarSocialActions.map((action) => (
+                    <div key={action.key} className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSidebarQuickActionClick(action)}
+                        className={`flex w-full flex-col items-center gap-1 p-1.5 md:p-2 rounded-lg ${t.cardHover} transition-colors group min-w-0`}
+                      >
+                        <div className={`w-5 h-5 md:w-6 md:h-6 rounded-md ${t.accent} flex items-center justify-center group-hover:scale-105 transition-transform`}>
+                          <span className="text-white flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4">{action.icon}</span>
+                        </div>
+                        <p className={`text-xs font-medium ${t.text} text-center leading-tight`}>
+                          <T>{action.label}</T>
+                        </p>
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
-          </div>
-        </div>
 
-        {/* Socials — custom navigation links (horizontal) */}
-        {sidebarSocialActions.length > 0 && (
-          <div className="px-2 py-2 md:px-4 md:py-3 border-t border-slate-200/50">
-            <motion.div {...sidebarPopState} transition={sidebarPopTransition()} className="mb-1 md:mb-2">
-              <p className={`text-xs font-semibold ${t.textMuted} uppercase tracking-wider`}><T>Socials</T></p>
-            </motion.div>
-            <div className="flex gap-1">
-              {sidebarSocialActions.map((action) => (
-                <motion.div
-                  key={action.key}
-                  {...sidebarPopState}
-                  transition={sidebarPopTransition()}
-                  className="min-w-0 flex-1"
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleSidebarQuickActionClick(action)}
-                    className={`flex w-full flex-col items-center gap-1 p-1.5 md:p-2 rounded-lg ${t.cardHover} transition-colors group min-w-0`}
-                  >
-                    <div className={`w-5 h-5 md:w-6 md:h-6 rounded-md ${t.accent} flex items-center justify-center group-hover:scale-105 transition-transform`}>
-                      <span className="text-white flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4">{action.icon}</span>
-                    </div>
-                    <p className={`text-xs font-medium ${t.text} text-center leading-tight`}>
-                      <T>{action.label}</T>
-                    </p>
-                  </button>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Language selector - HIDDEN for OpenAI-only multilingual system */}
-        <div className="language-section sidebar-language-selector block md:hidden px-2 py-2 md:px-4 md:py-4 border-t border-slate-100" style={{ display: 'none' }}>
-          <p className="text-xs text-slate-400 mb-2"><T>Language</T></p>
-          <div className="language-selector-sidebar">
-            <button
-              ref={languageButtonRef}
-              className="flex items-center gap-2 w-full px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setHeaderLangDropdownOpen(false); // Close header dropdown
-                if (!sidebarLangDropdownOpen && languageButtonRef.current) {
-                  const rect = languageButtonRef.current.getBoundingClientRect();
-                  setDropdownPosition({
-                    top: rect.bottom + 4,
-                    left: rect.left
-                  });
-                }
-                setSidebarLangDropdownOpen(!sidebarLangDropdownOpen);
-              }}
-            >
-              <span className="text-slate-500">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-                </svg>
-              </span>
-              <span className="font-medium text-[#02066F]">
-                {SUPPORTED_LANGUAGES.find(l => l.name === currentLanguage)?.native || currentLanguage}
-              </span>
-              <span className="text-slate-400 ml-auto">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </span>
-            </button>
-
-            {/* Language dropdown options */}
-            {sidebarLangDropdownOpen && (
-              <div className="mt-2 bg-white border border-slate-200 rounded-xl shadow-lg z-[9999]">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.name}
-                    className="w-full px-3 py-2 text-left hover:bg-slate-50 text-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      changeLanguage(lang.name);
-                      setSidebarLangDropdownOpen(false);
-                    }}
-                  >
-                    {lang.native}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* User — last: gated by sidebarUserReveal (timeout), no transition.delay. */}
-        <motion.div
-          initial={sidebarPopState.initial}
-          animate={sidebarUserReveal ? sidebarPopState.animate : sidebarPopState.initial}
-          transition={sidebarSpring}
-          className={`px-2 py-3 md:px-4 md:py-4 border-t ${t.borderLight} pb-[calc(env(safe-area-inset-bottom)+0.5rem)] mt-auto flex-shrink-0`}
-        >
-          <div className="logout-dropdown-container relative">
-            <div className="flex items-center gap-2 md:gap-3 px-2 py-2 md:px-3 md:py-3 rounded-xl transition-colors">
-              <div
-                className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center ${isAuthenticated
-                  ? 'bg-gradient-to-br from-emerald-500 to-teal-600 cursor-pointer hover:shadow-lg transition-all duration-200'
-                  : 'bg-gradient-to-br from-slate-200 to-slate-300'
-                  }`}
-                onClick={() => isAuthenticated && setLogoutDropdownOpen(!logoutDropdownOpen)}
-              >
-                <User className={`w-4 h-4 md:w-5 md:h-5 ${isAuthenticated ? 'text-white' : 'text-slate-600'}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-xs md:text-sm font-semibold ${t.text}`}>
-                  {isAuthenticated ? (userInfo?.name || userInfo?.phone || <T>User</T>) : <T>User</T>}
-                </p>
-                <p className={`text-xs ${t.textMuted}`}>
-                  {isAuthenticated ? (userInfo?.phone || <T>Authenticated</T>) : <T>Guest</T>}
-                </p>
-              </div>
-            </div>
-
-            {/* Logout Dropdown - Only show for authenticated users */}
-            {logoutDropdownOpen && isAuthenticated && (
-              <div className={`logout-dropdown-container absolute bottom-full left-0 mb-2 w-full ${t.card} border ${t.border} rounded-xl shadow-lg z-50`}>
+            {/* Language selector - HIDDEN for OpenAI-only multilingual system */}
+            <div className="language-section sidebar-language-selector block md:hidden px-2 py-2 md:px-4 md:py-4 border-t border-slate-100" style={{ display: 'none' }}>
+              <p className="text-xs text-slate-400 mb-2"><T>Language</T></p>
+              <div className="language-selector-sidebar">
                 <button
-                  onClick={() => {
-                    console.log('🔴 [LOGOUT] Logout button clicked');
-                    // Clear chat history before logout
-                    console.log('🧹 [LOGOUT] Clearing chat messages');
-                    setMessages([]);
-
-                    // Clear additional chat-related state
-                    setConversations([]);
-                    setDebouncedSearch('');
-                    setSidebarSearch('');
-
-                    console.log('🚪 [LOGOUT] Calling logout function');
-                    logout();
-                    console.log('✅ [LOGOUT] Logout function completed, closing dropdown');
-                    setLogoutDropdownOpen(false);
+                  ref={languageButtonRef}
+                  className="flex items-center gap-2 w-full px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setHeaderLangDropdownOpen(false);
+                    if (!langDropdownOpen && languageButtonRef.current) {
+                      const rect = languageButtonRef.current.getBoundingClientRect();
+                      setDropdownPosition({
+                        top: rect.bottom + 4,
+                        left: rect.left
+                      });
+                    }
+                    setLangDropdownOpen(!langDropdownOpen);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors`}
                 >
-                  <LogOut className="w-4 h-4" />
-                  <span className="text-sm font-medium"><T>Logout</T></span>
+                  <span className="text-slate-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                    </svg>
+                  </span>
+                  <span className="font-medium text-[#02066F]">
+                    {SUPPORTED_LANGUAGES.find(l => l.name === currentLanguage)?.native || currentLanguage}
+                  </span>
+                  <span className="text-slate-400 ml-auto">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </span>
                 </button>
+
+                <AnimatePresence>
+                  {langDropdownOpen && (
+                    <motion.div
+                      ref={langDropdownMotionRef}
+                      key="lang-dropdown"
+                      initial={{ opacity: 0, scale: 0.88, y: -8 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.88, y: -8 }}
+                      transition={
+                        uiSprings.prefersReduced
+                          ? { duration: 0 }
+                          : {
+                              type: 'spring',
+                              stiffness: 700,
+                              damping: 28,
+                              mass: 0.4,
+                            }
+                      }
+                      className="lang-dropdown-panel mt-2 origin-top-left bg-white border border-slate-200 rounded-xl shadow-lg z-[9999] overflow-hidden"
+                      style={{
+                        transformOrigin: 'top left',
+                        willChange: 'transform, opacity',
+                      }}
+                      onAnimationComplete={() => {
+                        if (langDropdownMotionRef.current) {
+                          langDropdownMotionRef.current.style.willChange = 'auto';
+                        }
+                      }}
+                    >
+                      {SUPPORTED_LANGUAGES.map((lang) => (
+                        <button
+                          key={lang.name}
+                          className="w-full px-3 py-2 text-left hover:bg-slate-50 text-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            changeLanguage(lang.name);
+                            setLangDropdownOpen(false);
+                          }}
+                        >
+                          {lang.native}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-            )}
+            </div>
+
+            <div
+              className={`px-2 py-3 md:px-4 md:py-4 border-t ${t.borderLight} pb-[calc(env(safe-area-inset-bottom)+0.5rem)] mt-auto flex-shrink-0`}
+            >
+              <div className="logout-dropdown-container relative">
+                <div className="flex items-center gap-2 md:gap-3 px-2 py-2 md:px-3 md:py-3 rounded-xl transition-colors">
+                  <div
+                    className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center ${isAuthenticated
+                      ? 'bg-gradient-to-br from-emerald-500 to-teal-600 cursor-pointer hover:shadow-lg transition-all duration-200'
+                      : 'bg-gradient-to-br from-slate-200 to-slate-300'
+                      }`}
+                    onClick={() => isAuthenticated && setLogoutDropdownOpen(!logoutDropdownOpen)}
+                  >
+                    <User className={`w-4 h-4 md:w-5 md:h-5 ${isAuthenticated ? 'text-white' : 'text-slate-600'}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs md:text-sm font-semibold ${t.text}`}>
+                      {isAuthenticated ? (userInfo?.name || userInfo?.phone || <T>User</T>) : <T>User</T>}
+                    </p>
+                    <p className={`text-xs ${t.textMuted}`}>
+                      {isAuthenticated ? (userInfo?.phone || <T>Authenticated</T>) : <T>Guest</T>}
+                    </p>
+                  </div>
+                </div>
+
+                {logoutDropdownOpen && isAuthenticated && (
+                  <div className={`logout-dropdown-container absolute bottom-full left-0 mb-2 w-full ${t.card} border ${t.border} rounded-xl shadow-lg z-50`}>
+                    <button
+                      onClick={() => {
+                        console.log('🔴 [LOGOUT] Logout button clicked');
+                        console.log('🧹 [LOGOUT] Clearing chat messages');
+                        setMessages([]);
+                        setConversations([]);
+                        setDebouncedSearch('');
+                        setSidebarSearch('');
+                        console.log('🚪 [LOGOUT] Calling logout function');
+                        logout();
+                        console.log('✅ [LOGOUT] Logout function completed, closing dropdown');
+                        setLogoutDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors`}
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-sm font-medium"><T>Logout</T></span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </motion.div>
-      </div>
+      </motion.div>
+          </>
+        );
+        return typeof document !== 'undefined' && isOmniEmbedded
+          ? createPortal(omniMobileDrawer, document.body)
+          : omniMobileDrawer;
+      })()}
 
       {/* Main — chat background photo only in the area below the header (header stays solid white) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col main-content-mobile">
         {/* Header */}
-        <div
+        <motion.div
           className={`chat-header-mobile box-border flex min-h-[76.8px] w-full shrink-0 items-center border-b ${t.border} bg-white px-4 py-3 sm:px-6 md:px-8`}
+          initial={uiSprings.prefersReduced ? false : { y: -40, opacity: 0 }}
+          animate={shellHeaderControls}
+          style={{ willChange: 'transform, opacity' }}
         >
           <div className="flex w-full items-center justify-between gap-2 sm:gap-4">
             <div className="flex min-w-0 shrink-0 items-center gap-4">
@@ -7635,7 +8446,29 @@ export default function NovaPremiumEnterprise() {
                   <T>{(chatbotConfig.header_enabled && chatbotConfig.header_text) ? chatbotConfig.header_text : (chatbotConfig.assistant_display_name || 'Troika Tech Services')}</T>
                 </h2>
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${API_CONFIG.CHATBOT_ID ? 'bg-[#2DA44E]' : 'bg-amber-500'}`} />
+                  <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+                    {API_CONFIG.CHATBOT_ID ? (
+                      <>
+                        <motion.span
+                          className="absolute inline-flex h-3 w-3 rounded-full border-2 border-[#2DA44E]"
+                          aria-hidden
+                          animate={
+                            uiSprings.prefersReduced
+                              ? { scale: 1, opacity: 0.5 }
+                              : { scale: [1, 2, 1], opacity: [0.5, 0, 0.5] }
+                          }
+                          transition={{
+                            duration: uiSprings.prefersReduced ? 0 : 2.4,
+                            repeat: uiSprings.prefersReduced ? 0 : Infinity,
+                            ease: 'easeInOut',
+                          }}
+                        />
+                        <span className="relative z-[1] h-2 w-2 rounded-full bg-[#2DA44E]" />
+                      </>
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    )}
+                  </span>
                   <span className={`text-xs ${t.textMuted}`}>
                     {API_CONFIG.CHATBOT_ID ? <T>Online</T> : <T>Demo Mode</T>}
                   </span>
@@ -7644,8 +8477,9 @@ export default function NovaPremiumEnterprise() {
             </div>
 
             {resolvedHeaderNavItems.length > 0 && (
+              <LayoutGroup>
               <nav
-                className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-4 md:gap-6 [&::-webkit-scrollbar]:hidden pr-1 md:pr-2"
+                className="hidden min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-4 md:gap-6 [&::-webkit-scrollbar]:hidden pr-1 md:pr-2 md:flex"
                 aria-label="Company"
               >
                 {resolvedHeaderNavItems.map(({ label, prompt }, idx) => (
@@ -7654,12 +8488,32 @@ export default function NovaPremiumEnterprise() {
                     type="button"
                     disabled={isStreaming || isAIProcessing}
                     onClick={() => handleHeaderNavKnowledge(prompt, label)}
-                    className={`shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-45 sm:text-sm ${t.text} opacity-90 hover:opacity-100`}
+                    onMouseEnter={() => setHeaderNavHoverKey(label)}
+                    onMouseLeave={() => setHeaderNavHoverKey((k) => (k === label ? null : k))}
+                    className={`nav-link-premium relative shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-45 sm:text-sm ${t.text} opacity-90 hover:opacity-100`}
                   >
+                    {headerNavActiveKey === label && (
+                      <motion.span
+                        layoutId="navUnderline"
+                        className="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-[#02066F]"
+                        transition={uiSprings.natural}
+                        style={{ willChange: 'transform' }}
+                      />
+                    )}
+                    {headerNavActiveKey !== label && headerNavHoverKey === label && (
+                      <motion.span
+                        className="pointer-events-none absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-indigo-400/55"
+                        initial={{ opacity: 0, scaleX: 0.85 }}
+                        animate={{ opacity: 1, scaleX: 1 }}
+                        transition={uiSprings.snappy}
+                        layout={false}
+                      />
+                    )}
                     <T>{label}</T>
                   </button>
                 ))}
               </nav>
+              </LayoutGroup>
             )}
 
             <div className="flex shrink-0 items-center gap-2">
@@ -7669,7 +8523,7 @@ export default function NovaPremiumEnterprise() {
                   ref={languageButtonRef}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setSidebarLangDropdownOpen(false); // Close sidebar dropdown
+                    setLangDropdownOpen(false); // Close sidebar dropdown
                     if (!headerLangDropdownOpen && languageButtonRef.current) {
                       const rect = languageButtonRef.current.getBoundingClientRect();
                       setDropdownPosition({
@@ -7687,53 +8541,83 @@ export default function NovaPremiumEnterprise() {
                   </span>
                   <span className={t.textMuted}>{Icons.chevronDown}</span>
                 </button>
-                <DropdownPortal isOpen={headerLangDropdownOpen}>
-                  <div
-                    className="language-dropdown-portal"
-                    style={{
-                      position: 'fixed',
-                      top: dropdownPosition.top,
-                      left: dropdownPosition.left,
-                      width: '117px',
-                      zIndex: 99999,
-                      backgroundColor: 'white',
-                      borderRadius: '12px',
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                      border: '1px solid #e5e7eb',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    {SUPPORTED_LANGUAGES.map((lang) => (
-                      <button
-                        key={lang.name}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          changeLanguage(lang.name);
-                          setHeaderLangDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-4 text-sm ${t.text} hover:bg-slate-50 transition-colors ${currentLanguage === lang.name ? 'bg-blue-50 text-blue-700' : ''
-                          }`}
+                {createPortal(
+                  <AnimatePresence>
+                    {headerLangDropdownOpen && (
+                      <motion.div
+                        ref={headerLangDropdownMotionRef}
+                        key="header-lang-dropdown"
+                        initial={{ opacity: 0, scale: 0.88, y: -8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.88, y: -8 }}
+                        transition={
+                          uiSprings.prefersReduced
+                            ? { duration: 0 }
+                            : {
+                                type: 'spring',
+                                stiffness: 700,
+                                damping: 28,
+                                mass: 0.4,
+                              }
+                        }
+                        className="language-dropdown-portal"
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          width: '100%',
-                          height: '44px',
-                          padding: '0 16px',
-                          border: 'none',
-                          background: 'none',
-                          textAlign: 'left',
-                          cursor: 'pointer'
+                          position: 'fixed',
+                          top: dropdownPosition.top,
+                          left: dropdownPosition.left,
+                          width: '117px',
+                          zIndex: 99999,
+                          backgroundColor: 'white',
+                          borderRadius: '12px',
+                          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                          border: '1px solid #e5e7eb',
+                          overflow: 'hidden',
+                          transformOrigin: 'top right',
+                          willChange: 'transform, opacity',
+                        }}
+                        onAnimationComplete={() => {
+                          if (headerLangDropdownMotionRef.current) {
+                            headerLangDropdownMotionRef.current.style.willChange = 'auto';
+                          }
                         }}
                       >
-                        {lang.native}
-                      </button>
-                    ))}
-                  </div>
-                </DropdownPortal>
+                        {SUPPORTED_LANGUAGES.map((lang) => (
+                          <button
+                            key={lang.name}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              changeLanguage(lang.name);
+                              setHeaderLangDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-4 text-sm ${t.text} hover:bg-slate-50 transition-colors ${currentLanguage === lang.name ? 'bg-blue-50 text-blue-700' : ''
+                              }`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              width: '100%',
+                              height: '44px',
+                              padding: '0 16px',
+                              border: 'none',
+                              background: 'none',
+                              textAlign: 'left',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {lang.native}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>,
+                  document.body
+                )}
               </div>
 
               {/* WhatsApp Button - Hidden on Mobile */}
-              <button
+              {chatbotConfig.whatsapp_enabled && (
+              <motion.button
+                type="button"
                 onClick={() => {
                   if (chatbotConfig.whatsapp_mode === 'premium_modal') {
                     setShowPremiumModal(true);
@@ -7742,14 +8626,22 @@ export default function NovaPremiumEnterprise() {
                   const number = chatbotConfig.whatsapp_number?.replace(/\D/g, '');
                   if (number) window.open(`https://wa.me/${number}`, '_blank');
                 }}
-                className={`w-10 h-10 rounded-xl ${t.buttonSecondary} hidden md:flex items-center justify-center transition-all hover:bg-green-100 group`}
+                className={`w-10 h-10 rounded-xl ${t.buttonSecondary} hidden md:flex items-center justify-center transition-colors hover:bg-green-100`}
                 title="WhatsApp"
+                whileHover={
+                  uiSprings.prefersReduced ? undefined : { scale: 1.08, y: -2, boxShadow: '0 6px 16px rgba(37, 211, 102, 0.25)' }
+                }
+                whileTap={uiSprings.prefersReduced ? undefined : { scale: 0.96 }}
+                transition={uiSprings.snappy}
               >
-                <span className="text-green-600 group-hover:scale-110 transition-transform">{Icons.whatsapp}</span>
-              </button>
+                <span className="text-green-600">{Icons.whatsapp}</span>
+              </motion.button>
+              )}
 
               {/* Call Button - Hidden on Mobile */}
-              <button
+              {chatbotConfig.call_enabled && (
+              <motion.button
+                type="button"
                 onClick={() => {
                   if (chatbotConfig.call_mode === 'premium_modal') {
                     setShowPremiumModal(true);
@@ -7758,22 +8650,43 @@ export default function NovaPremiumEnterprise() {
                   const number = chatbotConfig.call_number?.replace(/\D/g, '');
                   if (number) window.location.href = `tel:${number}`;
                 }}
-                className={`w-10 h-10 rounded-xl ${t.buttonSecondary} hidden md:flex items-center justify-center transition-all hover:bg-blue-100 group`}
+                className={`w-10 h-10 rounded-xl ${t.buttonSecondary} hidden md:flex items-center justify-center transition-colors hover:bg-blue-100`}
                 title="Call"
+                whileHover={
+                  uiSprings.prefersReduced ? undefined : { scale: 1.08, y: -2, boxShadow: '0 6px 16px rgba(2, 6, 111, 0.2)' }
+                }
+                whileTap={uiSprings.prefersReduced ? undefined : { scale: 0.96 }}
+                transition={uiSprings.snappy}
               >
-                <span className="text-[#02066F] group-hover:scale-110 transition-transform">{Icons.phone}</span>
-              </button>
+                <span className="text-[#02066F]">{Icons.phone}</span>
+              </motion.button>
+              )}
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Blurred BG + overlay: only below header (fills remaining column height) */}
-        <div
+        <motion.div
           className={`flex min-h-0 min-w-0 flex-1 flex-col ${hasChatBackground ? 'chat-bg-main-region relative overflow-hidden' : ''}`}
+          initial={uiSprings.prefersReduced ? false : { opacity: 0, scale: 0.98 }}
+          animate={shellMainControls}
+          style={{ willChange: 'transform, opacity', position: 'relative' }}
+          onClick={
+            isEmptyWelcomeUIMain
+              ? (e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  welcomeBgRippleRef.current?.({
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top,
+                  });
+                }
+              : undefined
+          }
         >
+        {isEmptyWelcomeUIMain && <WelcomeBgCanvas onClickRef={welcomeBgRippleRef} />}
         {hasChatBackground && chatBodyBackgroundLayers && (
           <>
-            {isEmptyWelcomeUIMain ? (
+            {isEmptyWelcomeUIMain || !chatBgKenBurnsFinished ? (
               <motion.div
                 aria-hidden
                 className="pointer-events-none absolute inset-0"
@@ -7789,6 +8702,9 @@ export default function NovaPremiumEnterprise() {
                   duration: chatBgWelcomeZoomComplete ? CHAT_BG_ZOOM_IN_DURATION_SEC : 0,
                   ease: [0.22, 0.04, 0.16, 0.99],
                 }}
+                onAnimationComplete={() => {
+                  if (chatBgWelcomeZoomComplete) setChatBgKenBurnsFinished(true);
+                }}
               />
             ) : (
               <div
@@ -7797,6 +8713,12 @@ export default function NovaPremiumEnterprise() {
                 style={{
                   ...chatBodyBackgroundLayers.blurLayer,
                   backgroundAttachment: 'fixed',
+                  ...(chatBgWelcomeZoomComplete
+                    ? {
+                        transform: `scale(${CHAT_BG_WELCOME_ZOOM_IN_END_SCALE})`,
+                        transformOrigin: 'center center',
+                      }
+                    : {}),
                 }}
               />
             )}
@@ -7840,6 +8762,15 @@ export default function NovaPremiumEnterprise() {
         {/* Messages */}
         <div
           ref={messagesScrollRef}
+          onScroll={() => {
+            const panel = messagesScrollRef.current;
+            if (!panel) return;
+            const distanceFromBottom =
+              panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+            setShowScrollToBottom(distanceFromBottom > 120);
+            if (isStreaming) return;
+            userScrolledUpRef.current = distanceFromBottom > 80;
+          }}
           className={`scrollbar-thin messages-container-mobile flex-1 min-h-0 ${messages.filter((msg) => msg.isUser).length === 0 &&
             chatSuggestions.length > 0 &&
             countWords(inputValue) >= 2
@@ -7847,7 +8778,7 @@ export default function NovaPremiumEnterprise() {
               : 'overflow-y-auto'
             } ${messages.filter((msg) => msg.isUser).length === 0
             ? 'welcome-mode flex flex-col items-center justify-center px-0 py-0'
-            : 'px-8 py-6'
+            : 'px-4 pb-4 pt-4 scroll-pt-2'
             } ${hasChatBackground ? 'chat-bg-active' : ''}`}
         >
           <div
@@ -7856,41 +8787,40 @@ export default function NovaPremiumEnterprise() {
           >
             {/* Show loading state when fetching conversation messages */}
             {messagesLoading ? (
-              <div className="flex flex-col items-center justify-center h-full py-12">
-                <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-                <p className={`text-sm ${t.textSecondary}`}>Loading conversation...</p>
-              </div>
-            ) : (messages.length === 0 || messages.filter(msg => msg.isUser).length === 0) ? (
-              <div className="welcome-screen-container welcome-screen-mobile welcome-center-stack">
+              <motion.div
+                key="conversation-skeleton"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="w-full max-w-3xl mx-auto p-4 space-y-2 py-8"
+                style={{ willChange: 'opacity' }}
+              >
+                <SkeletonBubble width="60%" />
+                <SkeletonBubble isUser width="45%" />
+                <SkeletonBubble width="75%" />
+                <SkeletonBubble isUser width="30%" />
+                <SkeletonBubble width="50%" />
+              </motion.div>
+            ) : (
+              <AnimatePresence mode="wait" initial={false}>
+              {(messages.length === 0 || messages.filter(msg => msg.isUser).length === 0) ? (
+              <motion.div
+                key="welcome"
+                className="welcome-screen-container welcome-screen-mobile welcome-center-stack"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.01, filter: 'blur(4px)' }}
+                transition={{ ...uiSprings.gentle }}
+                style={{ willChange: 'transform, opacity', position: 'relative' }}
+              >
                 {(() => {
-                  let welcomeStep = 0;
-                  const welcomeStaggerSec = 0.42;
-                  const welcomeSpring = { type: 'spring', stiffness: 440, damping: 18, mass: 0.82 };
-                  const welcomePopTransition = () => ({
-                    ...welcomeSpring,
-                    delay: welcomeStaggerSec * welcomeStep++,
-                  });
-                  const welcomePopState = {
-                    initial: { opacity: 0, scale: 0.84 },
-                    animate: { opacity: 1, scale: 1 },
-                  };
-                  /* Wait for config so WelcomeTypewriter mounts before textarea/toolbar pop (fixes header-after-input order). */
+                  const welcomeSpring = { type: 'spring', stiffness: 540, damping: 26, mass: 0.58 };
                   const welcomePopReady = welcomeAfterSidebarIntro && isConfigLoaded;
-                  const hasWelcomeTypewriterRow = Boolean(
-                    activeConversationId && messages.length === 0,
-                  );
-                  /* Reserve stagger step 0 for the typewriter row first — do not compute textarea delay before that or the input steals delay 0. */
-                  const welcomeTypewriterTransition =
-                    welcomePopReady && hasWelcomeTypewriterRow
-                      ? welcomePopTransition()
-                      : { duration: 0 };
-                  const textareaDelaySec = welcomePopReady ? welcomeStaggerSec * welcomeStep++ : 0;
-                  /* Toolbar: only after placeholder is visible; attach → mic → send one-by-one. */
-                  const toolbarAfterPlaceholderSec = 0.18;
-                  const inputToolbarStaggerSec = 0.32;
+                  const toolbarAfterPlaceholderSec = 0.1;
+                  const inputToolbarStaggerSec = 0.2;
                   const inputToolPop = {
-                    initial: { opacity: 0, scale: 0.72 },
-                    animate: { opacity: 1, scale: 1 },
+                    initial: { opacity: 0, scale: 0.9, y: 12 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
                   };
                   const welcomeToolbarPopReady = welcomePopReady && welcomeAskPlaceholderVisible;
                   const inputToolTransition = (i) =>
@@ -7900,36 +8830,44 @@ export default function NovaPremiumEnterprise() {
                           delay: toolbarAfterPlaceholderSec + i * inputToolbarStaggerSec,
                         }
                       : { duration: 0 };
+                  const headlineLine1DelaySec = MOUNT_ENTRANCE_MS.headline / 1000;
+                  const headlineLine2DelaySec = MOUNT_ENTRANCE_MS.phrases / 1000;
+
                   return (
-                <div className="welcome-center-stack-inner flex w-full flex-col items-center justify-center">
-                  {/* Welcome typewriter text - ONLY for new conversation, NOT first welcome */}
-                  {activeConversationId && messages.length === 0 && (
-                    <motion.div
-                      initial={welcomePopState.initial}
-                      animate={welcomePopReady ? welcomePopState.animate : welcomePopState.initial}
-                      transition={welcomeTypewriterTransition}
-                      className="w-full flex justify-center"
-                    >
-                      <WelcomeTypewriter config={chatbotConfig} isConfigLoaded={isConfigLoaded} />
-                    </motion.div>
+                <div className="welcome-center-stack-inner relative z-[1] flex w-full flex-col items-center justify-center">
+                  {messages.length === 0 && (
+                    <div className="w-full flex justify-center">
+                      <PremiumTroikaHeadline
+                        line1DelaySec={headlineLine1DelaySec}
+                        line2DelaySec={headlineLine2DelaySec}
+                        welcomeText={chatbotConfig.welcome_text}
+                        welcomeTextEnabled={chatbotConfig.welcome_text_enabled === true}
+                        brandingCompany={chatbotConfig.sidebar_branding?.branding_company}
+                        brandingText={chatbotConfig.sidebar_branding?.branding_text}
+                        rotatingWelcomeEnabled={chatbotConfig.input_placeholders_enabled === true}
+                        rotatingWelcomePhrases={chatbotConfig.input_placeholders}
+                        rotatingWelcomeIntervalSec={chatbotConfig.input_placeholder_speed}
+                      />
+                    </div>
                   )}
 
-                  {/* Large Manus-style Input Box — whole card after rotating text; placeholder with textarea; toolbar icons one-by-one */}
+                  {/* Large Manus-style Input Box — mount timeline composer @ MOUNT_ENTRANCE_COMPOSER_MS */}
                   <motion.div
-                    className="manus-input-box-large manus-input-box-mobile relative w-full max-w-full"
-                    initial={welcomePopState.initial}
-                    animate={welcomePopReady ? welcomePopState.animate : welcomePopState.initial}
-                    transition={
-                      welcomePopReady
-                        ? { ...welcomeSpring, delay: textareaDelaySec }
-                        : { duration: 0 }
-                    }
-                    onAnimationComplete={() => {
-                      if (!welcomePopReady) return;
-                      if (welcomeInputCardAnimTrackedRef.current) return;
-                      welcomeInputCardAnimTrackedRef.current = true;
-                      setWelcomeAskPlaceholderVisible(true);
-                    }}
+                    className="w-full max-w-full"
+                    animate={{ scale: welcomeComposerFocused ? 1.01 : 1 }}
+                    transition={uiSprings.snappy}
+                    style={{ willChange: 'transform' }}
+                  >
+                  <motion.div
+                    ref={inputBoxRef}
+                    className={`manus-input-gradient-shell manus-input-box-mobile relative w-full max-w-full ${uiSprings.prefersReduced ? 'manus-input-gradient-shell--reduced' : ''}`}
+                    initial={{ opacity: 0, y: 20, scale: 0.96 }}
+                    animate={welcomeComposerControls}
+                  >
+                  <motion.div
+                    layoutId="userBubbleCard"
+                    className="manus-input-box-large relative w-full max-w-full"
+                    initial={false}
                   >
                     <div className="manus-input-textarea-wrap">
                       <textarea
@@ -7944,6 +8882,8 @@ export default function NovaPremiumEnterprise() {
                             }
                           }
                         }}
+                        onFocus={() => setWelcomeComposerFocused(true)}
+                        onBlur={() => setWelcomeComposerFocused(false)}
                         placeholder={
                           welcomeAskPlaceholderVisible ? computedPlaceholder : ''
                         }
@@ -7969,7 +8909,13 @@ export default function NovaPremiumEnterprise() {
                             type="button"
                             title="Attach file (PDF or Image)"
                           >
-                            {Icons.attach}
+                            <motion.span
+                              className="inline-flex [&>svg]:block"
+                              whileHover={uiSprings.prefersReduced ? undefined : { rotate: -20 }}
+                              transition={uiSprings.snappy}
+                            >
+                              {Icons.attach}
+                            </motion.span>
                           </button>
                         </motion.div>
 
@@ -7996,13 +8942,19 @@ export default function NovaPremiumEnterprise() {
                           }
                           transition={inputToolTransition(1)}
                         >
-                          <button
+                          <motion.button
+                            type="button"
                             className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center transition-colors hover:bg-slate-100 text-slate-500`}
                             onClick={() => {/* Handle mic */ }}
-                            type="button"
+                            whileHover={
+                              uiSprings.prefersReduced
+                                ? undefined
+                                : { scale: 1.25, color: '#02066F' }
+                            }
+                            transition={uiSprings.snappy}
                           >
                             {Icons.mic}
-                          </button>
+                          </motion.button>
                         </motion.div>
 
                         <motion.div
@@ -8013,16 +8965,46 @@ export default function NovaPremiumEnterprise() {
                           }
                           transition={inputToolTransition(2)}
                         >
-                          <button
+                          <motion.button
+                            type="button"
                             onClick={() => handleSend()}
+                            disabled={
+                              isStreaming ||
+                              isAIProcessing ||
+                              (!inputValue.trim() && !selectedFile) ||
+                              (chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT)
+                            }
                             className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-sm ${(inputValue.trim() || selectedFile) && !isStreaming
                               ? 'bg-[#02066F] text-white hover:bg-[#031880]'
                               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                              }`}
-                            type="button"
+                              } disabled:opacity-60 disabled:pointer-events-none`}
+                            whileHover={{ scale: (inputValue.trim() || selectedFile) && !isStreaming ? 1.08 : 1 }}
+                            transition={uiSprings.snappy}
+                            style={{ willChange: 'transform' }}
                           >
-                            {Icons.send}
-                          </button>
+                            <motion.span
+                              key={sendAnimKey}
+                              className="inline-flex"
+                              initial={{ x: 0, y: 0, opacity: 1, rotate: 0 }}
+                              animate={
+                                justSent
+                                  ? { x: 0, y: -6, opacity: 0, rotate: 45 }
+                                  : { x: 0, y: 0, opacity: 1, rotate: 0 }
+                              }
+                              whileTap={
+                                uiSprings.prefersReduced || justSent
+                                  ? undefined
+                                  : { scale: 0.8, rotate: 45 }
+                              }
+                              transition={{
+                                duration: uiSprings.prefersReduced ? 0 : 0.22,
+                                ease: 'easeOut',
+                              }}
+                              style={{ willChange: 'transform, opacity' }}
+                            >
+                              {Icons.send}
+                            </motion.span>
+                          </motion.button>
                         </motion.div>
                       </div>
                     </div>
@@ -8051,26 +9033,21 @@ export default function NovaPremiumEnterprise() {
                       </ul>
                     )}
                   </motion.div>
+                  </motion.div>
+                  </motion.div>
 
                   {/* Quick Action Suggestions - ONLY on first welcome screen, NOT on new conversation */}
                   {showActions && !isStreaming && !activeConversationId && messages.length === 0 && (
-                    <div className="quick-actions-section-welcome grid w-full max-w-full grid-cols-2 gap-3 quick-actions-mobile">
-                      <motion.p
-                        initial={welcomePopState.initial}
-                        animate={welcomePopReady ? welcomePopState.animate : welcomePopState.initial}
-                        transition={welcomePopReady ? welcomePopTransition() : { duration: 0 }}
-                        className={`col-span-2 text-sm ${t.textSecondary} mb-3 font-medium`}
-                      >
+                    <motion.div
+                      className="quick-actions-section-welcome grid w-full max-w-full grid-cols-2 gap-3 quick-actions-mobile"
+                      initial={{ opacity: 0, y: 20, scale: 0.96 }}
+                      animate={welcomeQuickActionsControls}
+                    >
+                      <p className={`col-span-2 text-sm ${t.textSecondary} mb-3 font-medium`}>
                         <T>How may I assist you?</T>
-                      </motion.p>
+                      </p>
                       {quickActions.map((action) => (
-                        <motion.div
-                          key={action.label}
-                          initial={welcomePopState.initial}
-                          animate={welcomePopReady ? welcomePopState.animate : welcomePopState.initial}
-                          transition={welcomePopReady ? welcomePopTransition() : { duration: 0 }}
-                          className="min-w-0"
-                        >
+                        <div key={action.label} className="min-w-0">
                           <QuickAction
                             icon={action.icon}
                             label={action.label}
@@ -8078,33 +9055,46 @@ export default function NovaPremiumEnterprise() {
                             onClick={() => handleSend(action.action)}
                             className="action-card-mobile"
                           />
-                        </motion.div>
+                        </div>
                       ))}
-                    </div>
+                    </motion.div>
                   )}
                 </div>
                   );
                 })()}
-              </div>
+              </motion.div>
             ) : (
-              <>
+              <motion.div
+                key="chat"
+                className="w-full max-w-3xl mx-auto flex min-h-full flex-col"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: uiSprings.prefersReduced ? 0 : 0.22, ease: 'easeOut' }}
+                style={{ willChange: 'transform, opacity' }}
+              >
                 {/* Pin thread to bottom when few messages; spacer collapses when history fills the view */}
                 <div className="w-full min-h-0 flex-1" aria-hidden="true" />
-                {messages.map((msg) => (
-                  <Message
-                    key={msg.id}
-                    message={msg}
-                    chatbotConfig={chatbotConfig}
-                    isUser={msg.isUser}
-                    isStreaming={false}
-                    onCopy={() => handleCopyMessage(msg.id)}
-                    onPrevResponse={() => handlePrevResponse(msg.id)}
-                    onNextResponse={() => handleNextResponse(msg.id)}
-                    messageFeedback={messageFeedback}
-                    onLike={handleLike}
-                    onDislike={handleDislike}
-                  />
-                ))}
+                <AnimatePresence initial={false}>
+                  {messages.map((msg) => (
+                    <Message
+                      key={msg.id}
+                      message={msg}
+                      chatbotConfig={chatbotConfig}
+                      isUser={msg.isUser}
+                      isStreaming={false}
+                      hasChatBackground={hasChatBackground}
+                      flyInFromComposer={msg.isUser && msg.id === userBubbleFlyInId}
+                      onFlyInComplete={clearUserBubbleFlyIn}
+                      onCopy={() => handleCopyMessage(msg.id)}
+                      onPrevResponse={() => handlePrevResponse(msg.id)}
+                      onNextResponse={() => handleNextResponse(msg.id)}
+                      messageFeedback={messageFeedback}
+                      onLike={handleLike}
+                      onDislike={handleDislike}
+                    />
+                  ))}
+                </AnimatePresence>
 
                 {/* Streaming response */}
                 {isStreaming && streamingResponse && (
@@ -8113,6 +9103,7 @@ export default function NovaPremiumEnterprise() {
                     isUser={false}
                     chatbotConfig={chatbotConfig}
                     isStreaming={true}
+                    hasChatBackground={hasChatBackground}
                     messageFeedback={messageFeedback}
                     onLike={handleLike}
                     onDislike={handleDislike}
@@ -8120,13 +9111,45 @@ export default function NovaPremiumEnterprise() {
                 )}
 
                 {/* Loading indicator when streaming starts but no content yet */}
-                {isStreaming && !streamingResponse && <AIThinking />}
+                <AnimatePresence mode="wait">
+                  {isStreaming && !streamingResponse && (
+                    <AIThinking key="ai-thinking-indicator" />
+                  )}
+                </AnimatePresence>
 
                 <div ref={messagesEndRef} />
-              </>
+              </motion.div>
+            )}
+              </AnimatePresence>
             )}
           </div>
         </div>
+
+        <AnimatePresence>
+          {showScrollToBottom && messages.filter((m) => m.isUser).length > 0 && (
+            <motion.button
+              key="scroll-bottom-btn"
+              type="button"
+              aria-label="Scroll to latest messages"
+              initial={{ opacity: 0, scale: 0.5, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.5, y: 10 }}
+              transition={uiSprings.snappy}
+              className="fixed bottom-24 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-lg shadow-md text-[#02066F] md:bottom-28"
+              style={{ willChange: 'transform, opacity' }}
+              onClick={() => {
+                const panel = messagesScrollRef.current;
+                if (panel) {
+                  panel.scrollTop = panel.scrollHeight;
+                  setShowScrollToBottom(false);
+                  userScrolledUpRef.current = false;
+                }
+              }}
+            >
+              ↓
+            </motion.button>
+          )}
+        </AnimatePresence>
 
         {/* Auth Error Banner */}
         {/* ✅ FIX: STRICT CHECK FOR AUTH ENABLED */}
@@ -8192,13 +9215,23 @@ export default function NovaPremiumEnterprise() {
                   </button>
                 </div>
               )}
-              <div className={`flex items-center gap-3 p-2 ${t.card} rounded-2xl border ${t.border} shadow-sm chat-input-mobile`}>
+              <motion.div
+                className={`chat-input-shell flex items-center gap-3 p-2 ${t.card} rounded-2xl border ${t.border} shadow-sm chat-input-mobile ${chatInputFocused ? 'input-focused' : ''}`}
+                transition={{ duration: uiSprings.prefersReduced ? 0 : 0.2, ease: 'easeOut' }}
+                style={{ willChange: 'transform, opacity' }}
+              >
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className={`w-9 h-9 rounded-xl ${t.buttonSecondary} flex items-center justify-center transition-colors input-actions-mobile`}
                   title="Attach file"
                 >
-                  {Icons.attach}
+                  <motion.span
+                    className="inline-flex [&>svg]:block"
+                    whileHover={uiSprings.prefersReduced ? undefined : { rotate: -20 }}
+                    transition={uiSprings.snappy}
+                  >
+                    {Icons.attach}
+                  </motion.span>
                 </button>
 
                 <div className="flex-1 relative">
@@ -8206,6 +9239,8 @@ export default function NovaPremiumEnterprise() {
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
+                    onFocus={() => setChatInputFocused(true)}
+                    onBlur={() => setChatInputFocused(false)}
                     onKeyDown={(e) => {
                       if (handleSuggestionKeyDown(e)) return;
                       if (e.key === 'Enter' && !isStreaming) {
@@ -8254,9 +9289,16 @@ export default function NovaPremiumEnterprise() {
                   )}
                 </div>
 
-                <button className={`w-9 h-9 rounded-xl ${t.buttonSecondary} flex items-center justify-center transition-colors input-actions-mobile`}>
+                <motion.button
+                  type="button"
+                  className={`w-9 h-9 rounded-xl ${t.buttonSecondary} flex items-center justify-center transition-colors input-actions-mobile`}
+                  whileHover={
+                    uiSprings.prefersReduced ? undefined : { scale: 1.25, color: '#02066F' }
+                  }
+                  transition={uiSprings.snappy}
+                >
                   {Icons.mic}
-                </button>
+                </motion.button>
 
                 {isStreaming ? (
                   <button
@@ -8266,18 +9308,54 @@ export default function NovaPremiumEnterprise() {
                     {Icons.stop}
                   </button>
                 ) : (
-                  <button
+                  <motion.button
+                    type="button"
                     onClick={() => handleSend()}
-                    disabled={(!inputValue.trim() && !selectedFile) || (chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT)}
-                    className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center transition-all input-actions-mobile ${(inputValue.trim() || selectedFile) && (!chatbotConfig?.authentication_enabled || isAuthenticated || messageCount < MESSAGE_LIMIT)
+                    disabled={
+                      isStreaming ||
+                      isAIProcessing ||
+                      (!inputValue.trim() && !selectedFile) ||
+                      (chatbotConfig?.authentication_enabled && !isAuthenticated && messageCount >= MESSAGE_LIMIT)
+                    }
+                    className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center transition-all input-actions-mobile disabled:opacity-60 disabled:pointer-events-none ${(inputValue.trim() || selectedFile) && (!chatbotConfig?.authentication_enabled || isAuthenticated || messageCount < MESSAGE_LIMIT)
                       ? 'bg-[#02066F] text-white hover:bg-[#031880] shadow-sm'
                       : 'bg-slate-100 text-slate-400'
                       }`}
+                    whileHover={{
+                      scale:
+                        (inputValue.trim() || selectedFile) &&
+                        (!chatbotConfig?.authentication_enabled || isAuthenticated || messageCount < MESSAGE_LIMIT)
+                          ? 1.08
+                          : 1,
+                    }}
+                    transition={uiSprings.snappy}
+                    style={{ willChange: 'transform' }}
                   >
-                    {Icons.send}
-                  </button>
+                    <motion.span
+                      key={sendAnimKey}
+                      className="inline-flex"
+                      initial={{ x: 0, y: 0, opacity: 1, rotate: 0 }}
+                      animate={
+                        justSent
+                          ? { x: 0, y: -6, opacity: 0, rotate: 45 }
+                          : { x: 0, y: 0, opacity: 1, rotate: 0 }
+                      }
+                      whileTap={
+                        uiSprings.prefersReduced || justSent
+                          ? undefined
+                          : { scale: 0.8, rotate: 45 }
+                      }
+                      transition={{
+                        duration: uiSprings.prefersReduced ? 0 : 0.22,
+                        ease: 'easeOut',
+                      }}
+                      style={{ willChange: 'transform, opacity' }}
+                    >
+                      {Icons.send}
+                    </motion.span>
+                  </motion.button>
                 )}
-              </div>
+              </motion.div>
 
               <div
                 className={`flex items-center justify-center gap-6 md:mt-4 text-xs ${
@@ -8299,7 +9377,7 @@ export default function NovaPremiumEnterprise() {
           </div>
         )}
         </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Authentication Modal */}
@@ -8536,6 +9614,16 @@ export default function NovaPremiumEnterprise() {
           </div>
         </div>,
         document.body
+      )}
+
+      {showSkater && !sidebarOpen && (isEmptyWelcomeUIMain || skaterFall) && (
+        <RobotGirlWidget
+          roamPlacement="bottomRight"
+          avoidRef={inputBoxRef}
+          triggerFall={skaterFall}
+          onFallComplete={handleSkaterFallComplete}
+          messages={chatbotConfig?.skater_girl?.messages}
+        />
       )}
 
     </div>

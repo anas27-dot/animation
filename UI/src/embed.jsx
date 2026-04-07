@@ -41,6 +41,8 @@ function initOmniAgentChatbot(config) {
     window.__OMNIAGENT_CONFIG__ = {
         chatbotId,
         apiBase,
+        /** When set, NovaPremiumEnterprise avoids document.body scroll lock and portals the mobile drawer to body. */
+        embedMode: true,
     };
 
     // Create root and render

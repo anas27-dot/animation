@@ -101,3 +101,46 @@ html, body, #root {
   font-weight: 600;
 }
 
+.quick-action-card {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.quick-action-card:hover {
+  box-shadow: 0 8px 24px rgba(2, 6, 111, 0.12);
+  border-color: #c7d2fe;
+  background-color: #e5e5e5;
+}
+
+.chat-input-shell {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.chat-input-shell.input-focused {
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+  border-color: #6366f1;
+}
+
+@keyframes skaterImpactShake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+/* Framer `motion.div` can override inline `style.animation`; class + !important wins for impact shake. */
+.skater-impact-shake {
+  animation: skaterImpactShake 0.4s ease !important;
+}
+

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+ui.zip
 .env
 .env.local
 *.log
