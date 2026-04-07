@@ -10,7 +10,6 @@ const VerifiedUser = require('../models/VerifiedUser');
 const PhoneUser = require('../models/PhoneUser');
 const UserCreditTransaction = require('../models/UserCreditTransaction');
 const { chunkText } = require('../utils/textChunker');
-const s3Service = require('../services/s3Service');
 const logger = require('../config/logging');
 const { scheduleKbReseed } = require('../services/kbSuggestionExtractor');
 
@@ -1607,7 +1606,7 @@ async function getEmbedScript(req, res) {
   }
 }
 
-// Product Images Configuration (S3)
+// Product images: pre-signed object storage upload is not available (AWS removed).
 async function getProductImagesUploadUrl(req, res) {
   try {
     const { id } = req.params;
@@ -1622,20 +1621,9 @@ async function getProductImagesUploadUrl(req, res) {
       return res.status(404).json({ error: 'Chatbot not found' });
     }
 
-    // Generate a unique key for the file
-    const timestamp = Date.now();
-    const cleanFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const key = `product-images/${chatbot._id}/${timestamp}_${cleanFilename}`;
-
-    const { uploadUrl, key: s3Key } = await s3Service.getPresignedUploadUrl(key, contentType);
-
-    res.json({
-      success: true,
-      uploadUrl,
-      key: s3Key,
-      // Helper URL for frontend to display (assuming public access or cloudfront)
-      // If bucket is public read:
-      publicUrl: `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_S3_REGION}.amazonaws.com/${s3Key}`
+    return res.status(503).json({
+      error:
+        'Pre-signed object storage upload is not enabled on this server. Add product image URLs in settings manually, or extend the API with a direct upload route.',
     });
   } catch (error) {
     logger.error('Get product images upload URL error:', error);
@@ -1731,29 +1719,14 @@ async function getChatBackgroundUploadUrl(req, res) {
       return res.status(400).json({ error: 'Only image uploads are allowed' });
     }
 
-    if (!process.env.AWS_S3_ACCESS_KEY_ID || !process.env.AWS_S3_SECRET_ACCESS_KEY || !process.env.AWS_S3_BUCKET_NAME) {
-      logger.error('Chat background upload: S3 env vars missing');
-      return res.status(503).json({
-        error: 'File upload is not configured. Set AWS_S3_ACCESS_KEY_ID, AWS_S3_SECRET_ACCESS_KEY, and AWS_S3_BUCKET_NAME on the server.',
-      });
-    }
-
     const chatbot = await Chatbot.findById(id);
     if (!chatbot) {
       return res.status(404).json({ error: 'Chatbot not found' });
     }
 
-    const timestamp = Date.now();
-    const cleanFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const key = `chat-backgrounds/${chatbot._id}/${timestamp}_${cleanFilename}`;
-
-    const { uploadUrl, key: s3Key } = await s3Service.getPresignedUploadUrl(key, contentType);
-
-    res.json({
-      success: true,
-      uploadUrl,
-      key: s3Key,
-      publicUrl: `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_S3_REGION}.amazonaws.com/${s3Key}`,
+    return res.status(503).json({
+      error:
+        'Pre-signed upload is not available. Use POST with multipart form field "file" on the chat-background upload route (direct disk upload).',
     });
   } catch (error) {
     logger.error('Get chat background upload URL error:', error);
