@@ -1,10 +1,43 @@
 const admin = require('firebase-admin');
 const path = require('path');
+const fs = require('fs');
 const logger = require('../config/logging');
 const User = require('../models/User');
 
-// Initialize Firebase Admin SDK
 let firebaseInitialized = false;
+
+function parseServiceAccountFromEnv() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      logger.error('FIREBASE_SERVICE_ACCOUNT_JSON is set but is not valid JSON');
+      return null;
+    }
+  }
+  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64?.trim();
+  if (b64) {
+    try {
+      return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    } catch {
+      logger.error('FIREBASE_SERVICE_ACCOUNT_BASE64 decode or JSON parse failed');
+      return null;
+    }
+  }
+  return null;
+}
+
+function loadServiceAccount() {
+  const fromEnv = parseServiceAccountFromEnv();
+  if (fromEnv) return fromEnv;
+
+  const serviceAccountPath = path.join(__dirname, '..', 'firebase-service-account.json');
+  if (fs.existsSync(serviceAccountPath)) {
+    return require(serviceAccountPath);
+  }
+  return null;
+}
 
 function initializeFirebase() {
   if (firebaseInitialized) {
@@ -12,17 +45,14 @@ function initializeFirebase() {
   }
 
   try {
-    const serviceAccountPath = path.join(__dirname, '..', 'firebase-service-account.json');
-    
-    // Check if service account file exists
-    const fs = require('fs');
-    if (!fs.existsSync(serviceAccountPath)) {
-      logger.error(`Firebase service account file not found at: ${serviceAccountPath}`);
-      logger.error('Please ensure firebase-service-account.json exists in the backend root directory');
+    const serviceAccount = loadServiceAccount();
+    if (!serviceAccount) {
+      logger.warn(
+        'Firebase not configured — push notifications disabled. ' +
+          'Set FIREBASE_SERVICE_ACCOUNT_JSON (or BASE64) on the server, or add firebase-service-account.json locally.',
+      );
       return;
     }
-
-    const serviceAccount = require(serviceAccountPath);
 
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
@@ -31,30 +61,21 @@ function initializeFirebase() {
     firebaseInitialized = true;
     logger.info('Firebase Admin SDK initialized successfully');
   } catch (error) {
-    logger.error('Error initializing Firebase Admin SDK:', error);
+    logger.error('Error initializing Firebase Admin SDK:', error.message || error);
   }
 }
 
-// Initialize Firebase on module load
 initializeFirebase();
 
-/**
- * Send push notification to user's mobile app using FCM V1 API
- * @param {string} userId - User ID
- * @param {string} title - Notification title
- * @param {string} body - Notification body
- * @param {object} data - Additional data payload
- * @returns {Promise<boolean>} - True if sent successfully
- */
 async function sendPushNotification(userId, title, body, data = {}) {
   try {
     if (!firebaseInitialized) {
-      logger.error('Firebase Admin SDK not initialized. Cannot send push notification.');
+      logger.debug('Skipping push: Firebase not initialized');
       return false;
     }
 
     const user = await User.findById(userId);
-    
+
     if (!user || !user.pushToken) {
       logger.warn(`No push token found for user ${userId}`);
       return false;
@@ -67,7 +88,7 @@ async function sendPushNotification(userId, title, body, data = {}) {
       },
       data: {
         ...Object.keys(data).reduce((acc, key) => {
-          acc[key] = String(data[key]); // FCM requires string values for data
+          acc[key] = String(data[key]);
           return acc;
         }, {}),
       },
@@ -99,9 +120,10 @@ async function sendPushNotification(userId, title, body, data = {}) {
     return true;
   } catch (error) {
     logger.error('Error sending push notification:', error.message || error);
-    // Handle invalid token errors
-    if (error.code === 'messaging/invalid-registration-token' || 
-        error.code === 'messaging/registration-token-not-registered') {
+    if (
+      error.code === 'messaging/invalid-registration-token' ||
+      error.code === 'messaging/registration-token-not-registered'
+    ) {
       logger.warn(`Invalid push token for user ${userId}, clearing token`);
       await User.findByIdAndUpdate(userId, { pushToken: null, pushTokenPlatform: null });
     }
@@ -109,13 +131,6 @@ async function sendPushNotification(userId, title, body, data = {}) {
   }
 }
 
-/**
- * Send notification to all users in a company
- * @param {string} companyId - Company ID
- * @param {string} title - Notification title
- * @param {string} body - Notification body
- * @param {object} data - Additional data payload
- */
 async function sendPushNotificationToCompany(companyId, title, body, data = {}) {
   try {
     const users = await User.find({
@@ -125,12 +140,12 @@ async function sendPushNotificationToCompany(companyId, title, body, data = {}) 
     });
 
     const results = await Promise.allSettled(
-      users.map(user => sendPushNotification(user._id, title, body, data))
+      users.map((user) => sendPushNotification(user._id, title, body, data)),
     );
 
-    const successCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+    const successCount = results.filter((r) => r.status === 'fulfilled' && r.value === true).length;
     logger.info(`Sent push notifications to ${successCount}/${users.length} users in company ${companyId}`);
-    
+
     return successCount;
   } catch (error) {
     logger.error('Error sending push notifications to company:', error);
@@ -138,48 +153,38 @@ async function sendPushNotificationToCompany(companyId, title, body, data = {}) 
   }
 }
 
-/**
- * Send notification when a visitor arrives on the website
- * This should be called from the chatbot widget or webhook
- * @param {string} companyId - Company ID (from chatbot)
- * @param {object} visitorInfo - Visitor information
- */
 async function notifyWebsiteVisitor(companyId, visitorInfo = {}) {
   try {
-    // Get total visitor count for the company
     const UserSession = require('../models/UserSession');
     const Chatbot = require('../models/Chatbot');
-    
-    // Get all chatbots for this company
+
     const chatbots = await Chatbot.find({ company: companyId });
-    const chatbotIds = chatbots.map(cb => cb._id.toString());
-    
-    // Count unique visitors (total active sessions)
+    const chatbotIds = chatbots.map((cb) => cb._id.toString());
+
     const totalVisitors = await UserSession.countDocuments({
       chatbotId: { $in: chatbotIds },
-      lastActivityAt: { 
-        $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
-      }
+      lastActivityAt: {
+        $gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
     });
-    
-    // Count unique visitors today
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const visitorsToday = await UserSession.countDocuments({
       chatbotId: { $in: chatbotIds },
-      createdAt: { $gte: today }
+      createdAt: { $gte: today },
     });
 
     const title = '👤 New Website Visitor';
     const body = `Total Visitors: ${totalVisitors} (${visitorsToday} today)${visitorInfo.page ? ` • Page: ${visitorInfo.page}` : ''}`;
-    
+
     const data = {
       type: 'website_visitor',
       companyId: companyId.toString(),
       timestamp: new Date().toISOString(),
       totalVisitors: totalVisitors.toString(),
       visitorsToday: visitorsToday.toString(),
-      url: '/dashboard', // Navigate to dashboard when tapped
+      url: '/dashboard',
       ...visitorInfo,
     };
 
