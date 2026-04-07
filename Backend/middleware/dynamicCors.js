@@ -53,12 +53,35 @@ function extractChatbotIdFromPath(path) {
   return match ? match[1] : null;
 }
 
+/** Routes that use dashboardCors — skip chatbot-domain gate so /api/admin/login never needs chatbotId. */
+function isDashboardApiPath(p) {
+  if (!p || typeof p !== 'string') return false;
+  const prefixes = [
+    '/api/admin',
+    '/api/user',
+    '/api/companies',
+    '/api/company',
+    '/api/customizations',
+    '/api/context',
+    '/api/subscriptions',
+    '/api/plans',
+    '/api/suggestions',
+  ];
+  return prefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
 async function dynamicCors(req, res, next) {
   try {
     const origin = req.headers.origin || req.headers.referer;
 
     // If no origin (server-to-server, Postman, curl), pass through
     if (!origin) return next();
+
+    const pathOnly =
+      req.path && req.path.length > 0 ? req.path : (req.originalUrl || '').split('?')[0];
+    if (isDashboardApiPath(pathOnly)) {
+      return next();
+    }
 
     const cleanOrigin = normalizeOrigin(origin);
 

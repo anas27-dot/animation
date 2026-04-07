@@ -74,12 +74,29 @@ const dashboardOrigins = [
 const isLocalDashboardOrigin = (origin) =>
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin).trim());
 
+/** Match Origin header to whitelist (case-insensitive, trailing slash OK). */
+function normalizeDashboardOrigin(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim().replace(/\/$/, '').toLowerCase();
+  try {
+    const u = new URL(trimmed);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return trimmed;
+  }
+}
+
+const dashboardOriginsNormalized = new Set(
+  dashboardOrigins.map((o) => normalizeDashboardOrigin(o)).filter(Boolean),
+);
+
 const dashboardCorsOptions = {
   origin: (origin, callback) => {
     // allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
 
-    if (dashboardOrigins.indexOf(origin) !== -1) {
+    const n = normalizeDashboardOrigin(origin);
+    if (n && dashboardOriginsNormalized.has(n)) {
       callback(null, true);
     } else if (process.env.NODE_ENV !== 'production' && isLocalDashboardOrigin(origin)) {
       // Vite may use 5173, 5174, 5175, etc. — allow any localhost port in dev
