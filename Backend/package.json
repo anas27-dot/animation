@@ -24,9 +24,6 @@
   "dependencies": {
     "@andresaya/edge-tts": "^1.8.0",
     "@anthropic-ai/sdk": "^0.9.1",
-    "@aws-sdk/client-cloudwatch": "^3.980.0",
-    "@aws-sdk/client-s3": "^3.974.0",
-    "@aws-sdk/s3-request-presigner": "^3.974.0",
     "@google-cloud/text-to-speech": "^5.0.0",
     "@napi-rs/canvas": "^0.1.88",
     "axios": "^1.6.2",
@@ -52,7 +49,6 @@
     "resend": "^6.7.0",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
-    "winston-cloudwatch": "^6.3.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {

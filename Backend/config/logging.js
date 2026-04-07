@@ -1,5 +1,4 @@
 const winston = require('winston');
-const WinstonCloudWatch = require('winston-cloudwatch');
 const fs = require('fs');
 const path = require('path');
 
@@ -63,17 +62,6 @@ if (nodeEnv === 'production') {
   logger.rejections.handle(
     new winston.transports.File({ filename: 'logs/rejections.log' })
   );
-}
-
-// Add CloudWatch transport if configured
-if (process.env.AWS_REGION || nodeEnv === 'production') {
-  logger.add(new WinstonCloudWatch({
-    logGroupName: process.env.CLOUDWATCH_GROUP_NAME || 'ChatAgent/Backend/Logs',
-    logStreamName: process.env.CLOUDWATCH_STREAM_NAME || `Instance-${nodeEnv}`,
-    awsRegion: process.env.AWS_REGION || 'ap-south-1',
-    jsonMessage: true,
-    retentionInDays: 7
-  }));
 }
 
 module.exports = logger;
