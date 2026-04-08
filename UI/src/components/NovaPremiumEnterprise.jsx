@@ -4033,7 +4033,7 @@ export default function NovaPremiumEnterprise() {
   const inputBoxRef = useRef(null);
   /** Full welcome column (headline + composer + quick actions) — skater roams here, not on the composer. */
   const [skaterFall, setSkaterFall] = useState(false);
-  const [showSkater, setShowSkater] = useState(chatbotConfig?.skater_girl?.enabled !== false);
+  const [showSkater, setShowSkater] = useState(false);
 
   const handleSkaterFallComplete = useCallback(() => {
     setShowSkater(false);
@@ -4048,11 +4048,11 @@ export default function NovaPremiumEnterprise() {
   }, []);
 
   useEffect(() => {
-    if (isEmptyWelcomeUIMain) {
+    if (isEmptyWelcomeUIMain && chatbotConfig?.skater_girl?.enabled !== false) {
       setShowSkater(true);
       setSkaterFall(false);
     }
-  }, [isEmptyWelcomeUIMain]);
+  }, [isEmptyWelcomeUIMain, chatbotConfig?.skater_girl?.enabled]);
 
   useEffect(() => {
     if (!isEmptyWelcomeUIMain) {
@@ -8146,8 +8146,10 @@ export default function NovaPremiumEnterprise() {
               </div>
               )}
               {resolvedHeaderNavItems.length > 0 && (
-                <div className="mb-4 px-4 pt-3 border-t border-slate-100 md:hidden">
-                  <p className={`mb-2 text-[10px] font-semibold uppercase tracking-wider ${t.textMuted}`}><T>Main Menu</T></p>
+                <div className="border-t border-slate-100 md:hidden">
+                  <div className="px-2 py-1 md:px-4 md:py-2 flex-shrink-0">
+                    <p className={`text-xs font-semibold uppercase tracking-wider ${t.textMuted}`}><T>Main Menu</T></p>
+                  </div>
                   <div className="flex flex-col [&>button:last-child]:border-b-0">
                     {resolvedHeaderNavItems.map(({ label, prompt }, idx) => (
                       <button
@@ -8158,7 +8160,7 @@ export default function NovaPremiumEnterprise() {
                           handleHeaderNavKnowledge(prompt, label);
                           setSidebarOpen(false);
                         }}
-                        className={`w-full px-1 py-2 text-left text-[13px] font-semibold transition-colors ${t.text} ${t.cardHover} border-b ${t.borderLight} disabled:pointer-events-none disabled:opacity-45`}
+                        className={`block w-full text-left px-3 md:px-4 py-2 text-sm font-semibold transition-colors ${t.text} ${t.cardHover} border-b ${t.borderLight} disabled:pointer-events-none disabled:opacity-45`}
                       >
                         <T>{label}</T>
                       </button>
@@ -8422,17 +8424,9 @@ export default function NovaPremiumEnterprise() {
         >
           <div className="flex w-full items-center justify-between gap-2 sm:gap-4">
             <div className="flex min-w-0 shrink-0 items-center gap-4">
-              {/* Hamburger Menu Button - Mobile Only */}
-              <button
-                className="hamburger-btn mobile-only"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open menu"
-              >
-                {Icons.menu}
-              </button>
               {chatbotConfig?.header_logo_url ? (
                 <a href={chatbotConfig.header_logo_link || '#'} target="_blank" rel="noopener noreferrer">
-                  <img src={chatbotConfig.header_logo_url} alt="Header Logo" className="w-11 h-11 rounded-full object-cover" />
+                  <img src={chatbotConfig.header_logo_url} alt="Header Logo" className="h-[3.5rem] max-w-[140px] object-contain" />
                 </a>
               ) : (
                 <img src={OmniAgentLogo} alt="OmniAgent" className="w-11 h-11 rounded-full object-cover" />
@@ -8441,7 +8435,7 @@ export default function NovaPremiumEnterprise() {
                 <h2 className={`font-semibold ${t.text}`}>
                   <T>{(chatbotConfig.header_enabled && chatbotConfig.header_text) ? chatbotConfig.header_text : (chatbotConfig.assistant_display_name || 'Troika Tech Services')}</T>
                 </h2>
-                <div className="flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2">
                   <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
                     {API_CONFIG.CHATBOT_ID ? (
                       <>
@@ -8513,6 +8507,14 @@ export default function NovaPremiumEnterprise() {
             )}
 
             <div className="flex shrink-0 items-center gap-2">
+              {/* Hamburger Menu Button - Mobile Only (right side) */}
+              <button
+                className="hamburger-btn mobile-only"
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open menu"
+              >
+                {Icons.menu}
+              </button>
               {/* Language Selector - HIDDEN for OpenAI-only multilingual system */}
               <div className="relative header-language-selector hidden md:block" style={{ display: 'none' }}>
                 <button
