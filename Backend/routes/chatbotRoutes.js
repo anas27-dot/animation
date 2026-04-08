@@ -6,6 +6,7 @@ const router = express.Router();
 const chatbotController = require('../controllers/chatbotController');
 
 const chatBgRoot = path.join(__dirname, '..', 'uploads', 'chat-backgrounds');
+const productImgRoot = path.join(__dirname, '..', 'uploads', 'product-images');
 const chatBackgroundMulter = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -31,6 +32,44 @@ const chatBackgroundMulter = multer({
 
 function chatBackgroundUploadMiddleware(req, res, next) {
   chatBackgroundMulter.single('file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Image must be 8MB or smaller' });
+      }
+      return res.status(400).json({ error: err.message || 'Invalid file' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'File is required' });
+    }
+    next();
+  });
+}
+
+const productImageMulter = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = path.join(productImgRoot, String(req.params.id));
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '') || '';
+      const safeExt = ext.match(/^\.[a-z0-9]+$/i) ? ext.toLowerCase() : '.jpg';
+      cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 12)}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
+
+function productImageUploadMiddleware(req, res, next) {
+  productImageMulter.single('file')(req, res, (err) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ error: 'Image must be 8MB or smaller' });
@@ -242,6 +281,12 @@ router.put('/:id/custom-navigation-items/:itemId', authenticateJWT, chatbotContr
 router.delete('/:id/custom-navigation-items/:itemId', authenticateJWT, chatbotController.deleteCustomNavigationItem);
 
 // Product Images routes (POST, PUT require JWT)
+router.post(
+  '/:id/product-images/upload',
+  authenticateJWT,
+  productImageUploadMiddleware,
+  chatbotController.uploadProductImageFile
+);
 router.post('/:id/product-images/upload-url', authenticateJWT, chatbotController.getProductImagesUploadUrl);
 router.put('/:id/product-images', authenticateJWT, chatbotController.updateProductImagesConfig);
 

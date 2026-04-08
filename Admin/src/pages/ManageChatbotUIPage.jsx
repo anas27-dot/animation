@@ -3,7 +3,6 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
-import axios from "axios";
 import {
   fetchChatbots,
   getChatbotUIConfig,
@@ -53,7 +52,7 @@ import {
   exchangeZohoCodeForToken,
   getCallingToolConfig,
   updateCallingToolConfig,
-  getProductImagesUploadUrl,
+  uploadProductImageFile,
   updateProductImagesConfig,
   updateChatbotSkaterGirl,
 } from "../services/api";
@@ -1675,16 +1674,12 @@ const ManageChatbotUIPage = () => {
     setUpdatingProductImages(true);
     try {
       for (const file of files) {
-        // 1. Get pre-signed URL
-        const { data } = await getProductImagesUploadUrl(selectedChatbotId, file.name, file.type);
-        const { uploadUrl, publicUrl } = data;
-
-        // 2. Upload to S3 using a clean axios instance to avoid interceptors
-        await axios.put(uploadUrl, file, {
-          headers: { 'Content-Type': file.type }
-        });
-
-        // 3. Add to state
+        const { data } = await uploadProductImageFile(selectedChatbotId, file);
+        const publicUrl = data?.publicUrl;
+        if (!publicUrl) {
+          toast.error("Upload succeeded but no image URL was returned");
+          continue;
+        }
         const newImage = {
           url: publicUrl,
           name: file.name.split('.')[0],
@@ -1696,7 +1691,11 @@ const ManageChatbotUIPage = () => {
       toast.success(`Images uploaded successfully!`);
     } catch (error) {
       console.error("Error uploading product image:", error);
-      toast.error(`Failed to upload images`);
+      toast.error(
+        error.response?.data?.error ||
+          error.message ||
+          "Failed to upload images"
+      );
     } finally {
       setUpdatingProductImages(false);
       // Reset input

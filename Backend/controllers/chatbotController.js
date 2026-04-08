@@ -1606,7 +1606,7 @@ async function getEmbedScript(req, res) {
   }
 }
 
-// Product images: pre-signed object storage not available (AWS S3 removed).
+// Legacy: pre-signed S3 URL — not available. Admin should POST multipart to uploadProductImageFile.
 async function getProductImagesUploadUrl(req, res) {
   try {
     const { id } = req.params;
@@ -1623,11 +1623,49 @@ async function getProductImagesUploadUrl(req, res) {
 
     return res.status(503).json({
       error:
-        'Pre-signed object storage upload is not enabled. Add image URLs manually in product images settings, or add a direct-upload API.',
+        'Pre-signed upload is not available. Use POST multipart (field "file") on /api/chatbot/:id/product-images/upload.',
     });
   } catch (error) {
     logger.error('Get product images upload URL error:', error);
     res.status(500).json({ error: 'Failed to generate upload URL' });
+  }
+}
+
+/** POST multipart (field name: file) — saves under uploads/product-images; same pattern as chat background. */
+async function uploadProductImageFile(req, res) {
+  try {
+    const { id } = req.params;
+    if (!req.file) {
+      return res.status(400).json({ error: 'File is required' });
+    }
+
+    const chatbot = await Chatbot.findById(id);
+    if (!chatbot) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (_) {}
+      return res.status(404).json({ error: 'Chatbot not found' });
+    }
+
+    const relative = `${id}/${req.file.filename}`;
+    const base = (process.env.PUBLIC_API_URL || '').replace(/\/$/, '');
+    const publicUrl = base
+      ? `${base}/uploads/product-images/${relative}`
+      : `${req.protocol}://${req.get('host')}/uploads/product-images/${relative}`;
+
+    res.json({
+      success: true,
+      publicUrl,
+      key: relative,
+    });
+  } catch (error) {
+    logger.error('Product image direct upload error:', error);
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (_) {}
+    }
+    res.status(500).json({ error: 'Failed to upload image' });
   }
 }
 
@@ -1840,6 +1878,7 @@ module.exports = {
   deleteCustomNavigationItem,
   getEmbedScript,
   getProductImagesUploadUrl,
+  uploadProductImageFile,
   updateProductImagesConfig,
   updateChatBackgroundConfig,
   uploadChatBackgroundFile,

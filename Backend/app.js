@@ -141,6 +141,14 @@ app.use(
   })
 );
 
+app.use(
+  '/uploads/product-images',
+  chatCors,
+  express.static(path.join(__dirname, 'uploads', 'product-images'), {
+    maxAge: '7d',
+  })
+);
+
 // Serve static files for chatbot embed loader
 app.use('/chatbot-loader', chatCors, express.static('chatbot-loader', {
   setHeaders: (res, path) => {

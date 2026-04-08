@@ -846,6 +846,13 @@ export const getProductImagesUploadUrl = (chatbotId, filename, contentType) => {
   return api.post(`/chatbot/${chatbotId}/product-images/upload-url`, { filename, contentType });
 };
 
+/** Multipart upload to API disk (no S3). Field name: `file`. */
+export const uploadProductImageFile = (chatbotId, file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api.post(`/chatbot/${chatbotId}/product-images/upload`, formData);
+};
+
 export const updateProductImagesConfig = (chatbotId, config) => {
   return api.put(`/chatbot/${chatbotId}/product-images`, config);
 };
