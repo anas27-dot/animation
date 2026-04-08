@@ -45,19 +45,27 @@ function extractMemories(conversationHistory = []) {
   return memories.slice(-20);
 }
 
+/** Strip HTML / markdown noise so greetings after product-image blocks are detected. */
+function assistantContentPlainForGreeting(content) {
+  if (!content || typeof content !== 'string') return '';
+  return content
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\*+|_+|`+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function hasGreetingBeenUsed(conversationHistory = []) {
-  const greetingPatterns = [
-    /^(good\s+(morning|afternoon|evening|night))/i,
-    /^(hello|hi|hey|greetings|good\s+day)/i,
-    /^(namaste|namaskar)/i,
-  ];
+  // Time-of-day greeting can appear after leading HTML (product gallery) — match anywhere in plain text.
+  const timeGreeting = /\bgood\s+(morning|afternoon|evening|night)\b/i;
+  // Opening hi/hello — only at start of visible text (after HTML strip) to limit false positives.
+  const openerGreeting = /^(hello|hi|hey|greetings|good\s+day|namaste|namaskar)\b/i;
   for (const msg of conversationHistory) {
-    if (msg.role === 'assistant' && msg.content) {
-      const content = msg.content.trim();
-      for (const pattern of greetingPatterns) {
-        if (pattern.test(content)) return true;
-      }
-    }
+    if (msg.role !== 'assistant' || !msg.content) continue;
+    const plain = assistantContentPlainForGreeting(msg.content);
+    if (!plain) continue;
+    if (timeGreeting.test(plain) || openerGreeting.test(plain)) return true;
   }
   return false;
 }
