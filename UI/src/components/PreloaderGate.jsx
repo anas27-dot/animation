@@ -370,7 +370,8 @@ function TroikaPreloader({ onComplete }) {
 
 export default function PreloaderGate({ children }) {
   const reduced = useReducedMotion();
-  const [showChildren, setShowChildren] = useState(false);
+  const alreadySeen = readSeen();
+  const [showChildren, setShowChildren] = useState(alreadySeen);
 
   useEffect(() => {
     if (!reduced || showChildren) return undefined;
@@ -381,6 +382,7 @@ export default function PreloaderGate({ children }) {
   }, [reduced, showChildren]);
 
   const handlePreloaderComplete = useCallback(() => {
+    try { sessionStorage.setItem(SEEN_KEY, '1'); } catch {}
     setShowChildren(true);
   }, []);
 

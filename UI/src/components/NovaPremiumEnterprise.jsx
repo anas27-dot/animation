@@ -158,7 +158,7 @@ const theme = {
 /** Timestamp / like row under a bubble (user + bot) */
 const MESSAGE_META_ROW_CLASS = 'flex items-center gap-2 mt-1 flex-wrap';
 /** Space after each full message row (bubble + meta) — keep compact between turns */
-const MESSAGE_THREAD_GAP_CLASS = 'mb-2';
+const MESSAGE_THREAD_GAP_CLASS = 'mb-4';
 /** Same avatar↔bubble gap user & bot (replaces mixed mr-4/ml-4 vs skeleton mr-3) */
 const MESSAGE_ROW_FLEX_CLASS = 'flex items-start gap-3';
 
@@ -1403,13 +1403,13 @@ const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevRe
   const timeClass = hasChatBackground
     ? 'text-xs text-slate-900 font-medium [text-shadow:0_1px_2px_rgba(255,255,255,0.95),0_0_10px_rgba(255,255,255,0.5)]'
     : `text-xs ${themeStyles.textMuted}`;
-  const btnIcon = 'w-8 h-8 rounded-lg flex items-center justify-center transition-colors';
+  const btnIcon = 'inline-flex items-center justify-center transition-colors [padding:0] [margin:0] [border:none] [background:transparent] [line-height:1] cursor-pointer';
   const iconIdle = hasChatBackground
-    ? `${btnIcon} text-slate-900 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.9))] hover:bg-white/55 hover:text-[#02066F]`
-    : `${btnIcon} text-[#6B7280] hover:text-[#02066F] hover:bg-slate-100`;
+    ? `${btnIcon} text-slate-900 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.9))] hover:text-[#02066F]`
+    : `${btnIcon} text-[#6B7280] hover:text-[#02066F]`;
   const iconPicked = hasChatBackground
-    ? `${btnIcon} text-[#02066F] bg-white/75 [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.85))]`
-    : `${btnIcon} text-[#02066F] bg-slate-100`;
+    ? `${btnIcon} text-[#02066F] [filter:drop-shadow(0_1px_1px_rgba(255,255,255,0.85))]`
+    : `${btnIcon} text-[#02066F]`;
 
   // Handle copy to clipboard
   const handleCopy = () => {
@@ -1428,12 +1428,12 @@ const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevRe
   const messageFeedback = feedback || 'none'; // 'like', 'dislike', or 'none'
 
   return (
-    <div className={MESSAGE_META_ROW_CLASS}>
+    <div className="flex items-center gap-2 -mt-1 flex-wrap">
       {/* Timestamp */}
       <span className={`${timeClass} shrink-0`}>{message.time || 'Just now'}</span>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-2">
         {/* Like Button - Show only if not disliked */}
         {messageFeedback !== 'dislike' && (
           <motion.button
@@ -1485,7 +1485,7 @@ const MessageActions = ({ message, feedback, onLike, onDislike, onCopy, onPrevRe
                 exit={{ scale: 0 }}
                 transition={snappy}
               >
-                <span className="text-[#2DA44E] text-lg leading-none" aria-hidden>✓</span>
+                <span className="text-[#2DA44E] text-xs leading-none" aria-hidden>✓</span>
               </motion.span>
             ) : (
               <motion.span
@@ -1723,11 +1723,11 @@ const Message = ({
 
     // Default text message - use ReactMarkdown for bot messages, plain text for user messages
     if (isUser) {
-      return <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{activeResponseText}</p>;
+      return <p className="text-[15px] leading-relaxed whitespace-pre-wrap m-0">{activeResponseText}</p>;
     } else {
       if (isStreaming) {
         return (
-          <div className="markdown-content" style={{ transition: 'opacity 0.1s ease' }}>
+          <div className="markdown-content [&>*:last-child]:mb-0" style={{ transition: 'opacity 0.1s ease' }}>
             <AnimatedStreamingText text={typeof activeResponseText === 'string' ? activeResponseText : ''} isStreaming={isStreaming} />
           </div>
         );
@@ -1736,7 +1736,7 @@ const Message = ({
       const hasTable = activeResponseText.includes('|') && activeResponseText.includes('---');
 
       return (
-        <div className="markdown-content">
+        <div className="markdown-content [&>*:last-child]:mb-0">
           <ReactMarkdown
             remarkPlugins={hasTable ? [remarkGfm] : []}
             rehypePlugins={[rehypeRaw]}
@@ -1815,7 +1815,7 @@ const Message = ({
     </motion.div>
   ) : (
     <motion.div
-      className={`px-5 py-4 rounded-2xl ${t.aiBubble} rounded-bl-md rainbow-border-animated`}
+      className={`px-5 pt-4 pb-2.5 rounded-2xl ${t.aiBubble} rounded-bl-md rainbow-border-animated`}
       initial={{ scaleX: 0.96 }}
       animate={{ scaleX: 1 }}
       style={{ transformOrigin: '0% 50%', willChange: 'transform, opacity' }}
@@ -1848,7 +1848,7 @@ const Message = ({
         {bubbleCard}
 
         {isUser ? (
-          <div className={`${MESSAGE_META_ROW_CLASS} justify-end`}>
+          <div className="flex items-center gap-2 mt-2 flex-wrap justify-end">
             <span className={userTimeClass}>{message.time}</span>
             <span
               className={
@@ -1923,7 +1923,7 @@ const Message = ({
 };
 
 // AI Thinking — Framer orbital dots + container enter/exit
-const AIThinking = () => {
+const AIThinking = ({ logoUrl }) => {
   const springs = useMotionSprings();
   const aiThinkingContainerRef = useRef(null);
   const containerVariants = {
@@ -1966,9 +1966,12 @@ const AIThinking = () => {
           transition={{ duration: 2, repeat: springs.prefersReduced ? 0 : Infinity, ease: 'easeOut' }}
           style={{ willChange: 'transform, opacity' }}
         />
-        <div className="w-9 h-9 rounded-full bg-[#02066F] flex items-center justify-center overflow-hidden">
-          <img src={OmniAgentLogo} alt="" className="w-5 h-5 rounded-full object-cover" />
-        </div>
+        <img
+          src={logoUrl || OmniAgentLogo}
+          alt=""
+          className="w-9 h-9 rounded-full object-cover"
+          onError={(e) => { e.target.src = OmniAgentLogo; }}
+        />
       </div>
 
       <div className="bg-[#F3F4F6] border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
@@ -4215,6 +4218,8 @@ export default function NovaPremiumEnterprise() {
 
     const tick = () => {
       rafId = null;
+      // Re-check every frame — user may scroll up while animation is running
+      if (userScrolledUpRef.current) return;
       const target = maxScroll();
       const cur = panel.scrollTop;
       const diff = target - cur;
@@ -4242,12 +4247,6 @@ export default function NovaPremiumEnterprise() {
       if (rafId != null) cancelAnimationFrame(rafId);
     };
   }, [messages, streamingResponse, isStreaming]);
-
-  useEffect(() => {
-    if (isStreaming) {
-      userScrolledUpRef.current = false;
-    }
-  }, [isStreaming]);
 
   // Auto-save messages to backend when messages change and streaming is complete
   useEffect(() => {
@@ -8765,8 +8764,11 @@ export default function NovaPremiumEnterprise() {
             const distanceFromBottom =
               panel.scrollHeight - panel.scrollTop - panel.clientHeight;
             setShowScrollToBottom(distanceFromBottom > 120);
-            if (isStreaming) return;
-            userScrolledUpRef.current = distanceFromBottom > 80;
+            if (distanceFromBottom > 80) {
+              userScrolledUpRef.current = true;
+            } else {
+              userScrolledUpRef.current = false;
+            }
           }}
           className={`scrollbar-thin messages-container-mobile flex-1 min-h-0 ${messages.filter((msg) => msg.isUser).length === 0 &&
             chatSuggestions.length > 0 &&
@@ -9110,7 +9112,7 @@ export default function NovaPremiumEnterprise() {
                 {/* Loading indicator when streaming starts but no content yet */}
                 <AnimatePresence mode="wait">
                   {isStreaming && !streamingResponse && (
-                    <AIThinking key="ai-thinking-indicator" />
+                    <AIThinking key="ai-thinking-indicator" logoUrl={chatbotConfig?.assistant_logo_url} />
                   )}
                 </AnimatePresence>
 

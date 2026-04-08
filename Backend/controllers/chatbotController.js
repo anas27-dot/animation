@@ -1791,6 +1791,7 @@ async function updateSkaterGirlConfig(req, res) {
       enabled: enabled !== false,
       messages: Array.isArray(messages) ? messages.filter(m => typeof m === 'string' && m.trim()) : [],
     };
+    chatbot.markModified('settings.skater_girl');
 
     await chatbot.save();
     res.json({ success: true, message: 'Skater Girl config updated', skater_girl: chatbot.settings.skater_girl });

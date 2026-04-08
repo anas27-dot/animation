@@ -187,6 +187,8 @@ export default function RobotGirlWidget({
   messages: messagesProp,
 } = {}) {
   const MESSAGES = Array.isArray(messagesProp) && messagesProp.length > 0 ? messagesProp : DEFAULT_MESSAGES;
+  const messagesRef = useRef(MESSAGES);
+  messagesRef.current = MESSAGES;
   const reduced = useReducedMotion();
   const widgetRootRef = useRef(null);
   const lottieRef = useRef(null);
@@ -212,6 +214,16 @@ export default function RobotGirlWidget({
   const [particles, setParticles] = useState([]);
   const [impactParticles, setImpactParticles] = useState([]);
   const particleIdRef = useRef(0);
+
+  // Sync bubble text when messages arrive from API (initial mount has defaults)
+  const prevMessagesRef = useRef(messagesProp);
+  if (prevMessagesRef.current !== messagesProp) {
+    prevMessagesRef.current = messagesProp;
+    if (Array.isArray(messagesProp) && messagesProp.length > 0) {
+      // Reset carousel to show first message from new config
+      msgIdxRef.current = 0;
+    }
+  }
   const impactParticleIdRef = useRef(0);
   const lastParticleTimeRef = useRef(0);
   const fallSquishTimeoutRef = useRef(0);
@@ -452,8 +464,7 @@ export default function RobotGirlWidget({
       if (carouselCancelRef.current) return;
       pausingRef.current = true;
       msgIdxRef.current = 0;
-      const firstIdx = msgIdxRef.current;
-      setBubbleText(MESSAGES[firstIdx]);
+      setBubbleText(messagesRef.current[0]);
       setShowBubble(true);
 
       await waitBubbleHoldOrAudioEnd();
@@ -463,10 +474,10 @@ export default function RobotGirlWidget({
         if (carouselCancelRef.current) return;
         await sleep(CAROUSEL_GAP_MS);
         if (carouselCancelRef.current) return;
-        msgIdxRef.current = (msgIdxRef.current + 1) % MESSAGES.length;
+        const msgs = messagesRef.current;
+        msgIdxRef.current = (msgIdxRef.current + 1) % msgs.length;
         pausingRef.current = true;
-        const currentIdx = msgIdxRef.current;
-        setBubbleText(MESSAGES[currentIdx]);
+        setBubbleText(msgs[msgIdxRef.current]);
         setShowBubble(true);
 
         await waitBubbleHoldOrAudioEnd();
