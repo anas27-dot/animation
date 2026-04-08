@@ -6990,6 +6990,20 @@ export default function NovaPremiumEnterprise() {
         /* ===== DESKTOP STYLES REMAIN UNCHANGED ===== */
         /* Everything above 768px stays as is */
         @media screen and (min-width: 769px) {
+          /*
+           * Top chrome: sidebar branding + main header share one height so their
+           * border-bottom lines meet flush at the column split (no vertical “step”).
+           */
+          .shell-header-strip {
+            min-height: 5.5rem;
+            box-sizing: border-box;
+          }
+
+          /* Main column: solid white under chrome so slate shell bg never shows as a “line” above the header */
+          .main-content-mobile {
+            background-color: #ffffff;
+          }
+
           /* Desktop sidebar always visible - restore original */
           .sidebar-mobile,
           .w-80.bg-white.border-r {
@@ -7165,7 +7179,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           .chat-header-mobile {
-            padding: 12px 16px !important;
+            padding: 16px 16px !important;
           }
 
           .messages-container-mobile:not(.welcome-mode) {
@@ -8038,7 +8052,7 @@ export default function NovaPremiumEnterprise() {
         >
           <div className="flex min-h-0 flex-1 flex-col">
             <div
-              className={`relative shrink-0 px-4 py-4 border-b ${t.borderLight}`}
+              className={`shell-header-strip relative flex shrink-0 flex-col justify-center px-4 py-4 border-b ${t.borderLight}`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
@@ -8462,38 +8476,25 @@ export default function NovaPremiumEnterprise() {
       })()}
 
       {/* Main — chat background photo only in the area below the header (header stays solid white) */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col main-content-mobile">
+      <div className="main-content-mobile flex min-h-0 min-w-0 flex-1 flex-col bg-white">
         {/* Header */}
         <motion.div
-          className={`chat-header-mobile box-border flex min-h-[76.8px] w-full shrink-0 items-center border-b ${t.border} bg-white px-4 py-3 sm:px-6 md:min-h-0 md:py-4 md:px-8`}
+          className={`shell-header-strip chat-header-mobile box-border flex w-full shrink-0 items-center border-b ${t.borderLight} bg-white px-4 py-4 sm:px-6 md:px-8`}
           initial={uiSprings.prefersReduced ? false : { y: -40, opacity: 0 }}
           animate={shellHeaderControls}
           style={{ willChange: 'transform, opacity' }}
         >
           <div className="flex w-full items-center justify-between gap-2 sm:gap-4">
-            <div className="flex min-w-0 shrink-0 items-center gap-3">
+            <div className="flex min-w-0 shrink-0 items-center gap-4">
               {chatbotConfig?.header_logo_url ? (
-                <a
-                  href={chatbotConfig.header_logo_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex shrink-0 items-center leading-none"
-                >
-                  <img
-                    src={chatbotConfig.header_logo_url}
-                    alt="Header Logo"
-                    className="block h-[3.5rem] max-w-[140px] object-contain"
-                  />
+                <a href={chatbotConfig.header_logo_link || '#'} target="_blank" rel="noopener noreferrer">
+                  <img src={chatbotConfig.header_logo_url} alt="Header Logo" className="h-[3.5rem] w-auto max-w-[140px] object-contain" />
                 </a>
               ) : (
-                <img
-                  src={OmniAgentLogo}
-                  alt="OmniAgent"
-                  className="block h-11 w-11 shrink-0 rounded-full object-cover"
-                />
+                <img src={OmniAgentLogo} alt="OmniAgent" className="h-[3.5rem] w-[3.5rem] rounded-full object-cover" />
               )}
-              <div className="min-w-0 leading-tight">
-                <h2 className={`font-semibold ${t.text}`}>
+              <div>
+                <h2 className={`text-sm font-semibold leading-tight ${t.text}`}>
                   <T>{(chatbotConfig.header_enabled && chatbotConfig.header_text) ? chatbotConfig.header_text : (chatbotConfig.assistant_display_name || 'Troika Tech Services')}</T>
                 </h2>
                 <div className="hidden md:flex items-center gap-2">
