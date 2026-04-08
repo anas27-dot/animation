@@ -206,8 +206,8 @@ const API_PREFIX = '/api';
 // CORE ROUTES
 // ============================================
 
-// Chat routes (basic) - no dynamicCors; use app-level chatCors only so Nova UI can load messages
-app.use(`${API_PREFIX}/chat`, chatRoutes);
+// Chat routes — permissive CORS so /api/chat/* (suggestions, etc.) always gets ACAO from the UI origin
+app.use(`${API_PREFIX}/chat`, chatCors, chatRoutes);
 
 // Chatbot management
 app.use(`${API_PREFIX}/chatbot`, chatbotRoutes);

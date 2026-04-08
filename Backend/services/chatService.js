@@ -8,6 +8,7 @@ const { retrieveUserContext } = require('./memoryService');
 const Chatbot = require('../models/Chatbot');
 const logger = require('../config/logging');
 const { recordMetric, withLatency } = require('../utils/cloudwatch');
+const { resolvePublicAssetUrl } = require('../utils/publicUrl');
 
 const MAX_RESPONSE_LENGTH = 2000;
 
@@ -141,9 +142,11 @@ async function* generateStreamingAnswer(query, chatbotId, userId = null, history
         if (selectedImages.length > 0) {
           productImagesMarkdown =
             '<div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; justify-content: flex-start;">' +
-            selectedImages.map(img =>
-              `<img src="${img.url}" alt="${img.name || 'Product'}" crossorigin="anonymous" style="width: calc(33.33% - 7px); aspect-ratio: 1/1; object-fit: cover; border-radius: 8px; border: 1px solid #eee; display: block;" />`
-            ).join('') +
+            selectedImages.map((img) => {
+              const src = resolvePublicAssetUrl(img.url || '').replace(/"/g, '&quot;');
+              const alt = String(img.name || 'Product').replace(/"/g, '&quot;');
+              return `<img src="${src}" alt="${alt}" style="width: calc(33.33% - 7px); aspect-ratio: 1/1; object-fit: cover; border-radius: 8px; border: 1px solid #eee; display: block;" />`;
+            }).join('') +
             '</div>\n\n';
           logger.info(`🖼️ [Product Images] Selected ${selectedImages.length} images for display.`);
         }

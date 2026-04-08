@@ -192,6 +192,11 @@ async function dynamicCors(req, res, next) {
     });
   } catch (error) {
     const chatbotId = req.query?.chatbotId || req.body?.chatbotId || req.headers?.['x-chatbot-id'] || extractChatbotIdFromPath(getRequestPath(req));
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     logger.error(`[CORS] Critical Middleware Failure: ${error.message}`, {
       stack: error.stack,
       url: req.url,
