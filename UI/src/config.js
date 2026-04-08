@@ -6,7 +6,7 @@ const config = {
         }
         const fromEnv = import.meta.env.VITE_CHATBOT_ID;
         if (fromEnv) return fromEnv;
-        return '69ca1a76a29bde2613959b78';
+        return '69d4dd3255a54826a50b47f7';
     },
 
     // API Configuration (priority: embed → env → dev localhost → production)
