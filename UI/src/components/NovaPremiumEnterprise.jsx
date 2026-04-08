@@ -2484,6 +2484,7 @@ export default function NovaPremiumEnterprise() {
     },
     /** Off until config loads — avoids skater flash while fetching (undefined !== false was wrongly "on"). */
     skater_girl: { enabled: false, messages: [] },
+    demo_mode: false,
   });
 
   const chatBodyBackgroundLayers = useMemo(() => {
@@ -2609,6 +2610,7 @@ export default function NovaPremiumEnterprise() {
                   style: ['cover', 'watermark', 'pattern'].includes(cb?.style) ? cb.style : 'watermark',
                 };
               })(),
+              demo_mode: result.data.demo_mode === true || result.data.settings?.demo_mode === true,
             });
 
             // Update skater girl visibility based on config
@@ -3864,6 +3866,10 @@ export default function NovaPremiumEnterprise() {
   };
 
   const handleSidebarQuickActionClick = (action) => {
+    if (chatbotConfig?.demo_mode && (action.isProposal || action.isEmail || action.isCalendly)) {
+      window.alert('Access Denied on Demo');
+      return;
+    }
     if (action.isProposal && action.action === 'get_quote') {
       if (!isAuthenticated || !userInfo?.phone) {
         toast.error('Please verify your phone number to send proposals');

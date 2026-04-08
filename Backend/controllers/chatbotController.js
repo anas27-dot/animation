@@ -441,6 +441,7 @@ async function getChatbotConfig(req, res) {
             ? chatbot.settings.chat_background.style
             : 'watermark',
         },
+        demo_mode: chatbot.settings?.demo_mode === true,
       },
     });
   } catch (error) {
@@ -1178,6 +1179,30 @@ async function updateSidebarEnabled(req, res) {
   }
 }
 
+// Demo mode: blocks proposal / email / Calendly shortcuts in the widget; Admin UI can mirror behavior when toggled on.
+async function updateChatbotDemoMode(req, res) {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    const chatbot = await Chatbot.findById(id);
+    if (!chatbot) return res.status(404).json({ error: 'Chatbot not found' });
+
+    if (!chatbot.settings) chatbot.settings = {};
+    chatbot.settings.demo_mode = Boolean(enabled);
+
+    await chatbot.save();
+    res.json({
+      success: true,
+      message: 'Demo mode updated',
+      demo_mode: chatbot.settings.demo_mode,
+    });
+  } catch (error) {
+    logger.error('Update demo mode error:', error);
+    res.status(500).json({ error: 'Failed to update demo mode' });
+  }
+}
+
 // Public chat endpoint for embed scripts
 async function chatPublic(req, res) {
   try {
@@ -1390,7 +1415,10 @@ async function getChatbotSidebarConfig(req, res) {
 
     res.json({
       success: true,
-      data: sidebarConfig
+      data: {
+        ...sidebarConfig,
+        demo_mode: chatbot.settings?.demo_mode === true,
+      },
     });
   } catch (error) {
     logger.error('Get sidebar config error:', error);
@@ -1869,6 +1897,7 @@ module.exports = {
   updateSidebarCustomNav,
   updateSidebarUserDashboard,
   updateSidebarEnabled,
+  updateChatbotDemoMode,
   updatePlaceholdersConfig,
   updateContactConfig,
   chatPublic,

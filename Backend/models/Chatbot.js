@@ -56,6 +56,11 @@ const chatbotSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      /** When true, Email / Proposal / Schedule meeting shortcuts show "Access Denied on Demo". */
+      demo_mode: {
+        type: Boolean,
+        default: false,
+      },
       allowedDomains: {
         type: [String],
         default: [],

@@ -18,6 +18,7 @@ import {
   updateWhatsAppProposalSettings,
   getChatbotSidebarConfig,
   updateChatbotSidebarEnabled,
+  updateChatbotDemoMode,
   updateChatbotUserDashboardSidebar,
   updateChatbotSidebarWhatsApp,
   updateChatbotSidebarCall,
@@ -56,7 +57,7 @@ import {
   updateProductImagesConfig,
   updateChatbotSkaterGirl,
 } from "../services/api";
-import { Image, Type, Loader2, MessageSquare, Phone, PhoneCall, Settings, Calendar, Mail, Plus, Edit2, Trash2, X, Share2, Sparkles, Heading, Navigation, Monitor, ArrowLeft, Eye, EyeOff, Search, Shield, Database, CheckCircle2 } from "lucide-react";
+import { Image, Type, Loader2, MessageSquare, Phone, PhoneCall, Settings, Calendar, Mail, Plus, Edit2, Trash2, X, Share2, Sparkles, Heading, Navigation, Monitor, ArrowLeft, Eye, EyeOff, Search, Shield, Database, CheckCircle2, Presentation } from "lucide-react";
 
 /** Pre-filled example rows for Header Nav (same idea as chat widget defaults). */
 const HEADER_NAV_EXAMPLE_ROWS = [
@@ -205,6 +206,8 @@ const ManageChatbotUIPage = () => {
   const [headerNavEnabled, setHeaderNavEnabled] = useState(true);
   const [headerNavItems, setHeaderNavItems] = useState([{ label: "", prompt: "" }]);
   const [updatingMaster, setUpdatingMaster] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [updatingDemo, setUpdatingDemo] = useState(false);
   const [updatingWhatsApp, setUpdatingWhatsApp] = useState(false);
   const [updatingCall, setUpdatingCall] = useState(false);
   const [updatingCalendly, setUpdatingCalendly] = useState(false);
@@ -1777,6 +1780,7 @@ const ManageChatbotUIPage = () => {
       setWhatsappProposalDefaultCountryCode(config.whatsapp_proposal?.default_country_code || "91");
       // Don't overwrite templates here - they are managed separately via fetchProposalTemplates
       // setWhatsappProposalTemplates(config.whatsapp_proposal_templates || []);
+      setDemoMode(config.demo_mode === true);
       setSocialEnabled(config.social?.enabled || false);
       setBrandingEnabled(config.branding?.enabled || false);
       setBrandingText(config.branding?.branding_text || "Powered by");
@@ -1850,6 +1854,7 @@ const ManageChatbotUIPage = () => {
   };
 
   const resetSidebarConfig = () => {
+    setDemoMode(false);
     setSidebarEnabled(false);
     setWhatsappEnabled(false);
     setWhatsappMode("premium_modal");
@@ -1884,6 +1889,16 @@ const ManageChatbotUIPage = () => {
     setCustomNavItems([]);
     setUserDashboardSidebarEnabled(true);
     setUserDashboardAllowedMenuKeys(userDashboardMenuOptions.map((option) => option.key));
+  };
+
+  /** When demo mode is on, Calendly / Email / Intent tabs only show an access message (widget shortcuts behave the same). */
+  const DEMO_BLOCKED_UI_SECTIONS = new Set(["calendly", "email", "intent"]);
+  const goToChatbotUISection = (section) => {
+    if (demoMode && DEMO_BLOCKED_UI_SECTIONS.has(section)) {
+      window.alert("Access Denied on Demo");
+      return;
+    }
+    setActiveSection(section);
   };
 
   const toggleUserDashboardMenuKey = (key) => {
@@ -2649,6 +2664,49 @@ const ManageChatbotUIPage = () => {
                   </div>
                 </div>
 
+                <div className="bg-white rounded-xl shadow-lg p-6 mb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <Presentation className="h-6 w-6 text-indigo-600 mr-2" />
+                      <div>
+                        <h2 className="text-xl font-semibold text-gray-800">Demo mode</h2>
+                        <p className="text-sm text-gray-500 mt-1">
+                          When on, Email, Intent &amp; Proposals, and Calendly are blocked in the chat widget (shortcuts show &quot;Access Denied on Demo&quot;). In this admin page, those same tabs are blocked while the toggle is on.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!selectedChatbotId) {
+                          toast.error("Please select a chatbot first");
+                          return;
+                        }
+                        try {
+                          setUpdatingDemo(true);
+                          const next = !demoMode;
+                          await updateChatbotDemoMode(selectedChatbotId, next);
+                          setDemoMode(next);
+                          toast.success(next ? "Demo mode enabled" : "Demo mode disabled");
+                        } catch (error) {
+                          console.error("Error updating demo mode:", error);
+                          toast.error(error.response?.data?.message || error.response?.data?.error || "Failed to update demo mode");
+                        } finally {
+                          setUpdatingDemo(false);
+                        }
+                      }}
+                      disabled={updatingDemo}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${demoMode ? "bg-[#1e3a8a]" : "bg-gray-300"
+                        } ${updatingDemo ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${demoMode ? "translate-x-6" : "translate-x-1"
+                          }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
                 {/* Horizontal Tabs */}
                 <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
                   <div className="flex flex-wrap gap-2 overflow-x-auto">
@@ -2746,7 +2804,7 @@ const ManageChatbotUIPage = () => {
                     </button>
 
                     <button
-                      onClick={() => setActiveSection("calendly")}
+                      onClick={() => goToChatbotUISection("calendly")}
                       className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all ${activeSection === "calendly"
                         ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md"
                         : "bg-white text-gray-700 border border-gray-300 hover:border-purple-500"
@@ -2756,7 +2814,7 @@ const ManageChatbotUIPage = () => {
                       Calendly
                     </button>
                     <button
-                      onClick={() => setActiveSection("email")}
+                      onClick={() => goToChatbotUISection("email")}
                       className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all ${activeSection === "email"
                         ? "bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-md"
                         : "bg-white text-gray-700 border border-gray-300 hover:border-red-500"
@@ -2776,7 +2834,7 @@ const ManageChatbotUIPage = () => {
                       WhatsApp Proposal
                     </button>
                     <button
-                      onClick={() => setActiveSection("intent")}
+                      onClick={() => goToChatbotUISection("intent")}
                       className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all ${activeSection === "intent"
                         ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-md"
                         : "bg-white text-gray-700 border border-gray-300 hover:border-orange-500"

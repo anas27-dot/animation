@@ -507,6 +507,10 @@ export const updateChatbotSidebarEnabled = (chatbotId, enabled) => {
   return api.put(`/chatbot/${chatbotId}/sidebar-config/enabled`, { enabled });
 };
 
+export const updateChatbotDemoMode = (chatbotId, enabled) => {
+  return api.put(`/chatbot/${chatbotId}/sidebar-config/demo-mode`, { enabled });
+};
+
 // User dashboard sidebar permissions (controls user dashboard menus)
 export const updateChatbotUserDashboardSidebar = (chatbotId, enabled, allowedMenuKeys = []) => {
   return api.put(`/chatbot/${chatbotId}/sidebar-config/user-dashboard`, {
