@@ -1,3 +1,19 @@
+/** Omni backend on Render. Legacy Troika host returns 403/CORS from OmniAgentUI — remap at runtime. */
+const OMNI_API_BASE = 'https://omniagent-backend.onrender.com/api';
+
+export function normalizeApiBase(raw) {
+    if (raw == null || raw === '') return raw;
+    let u = String(raw).trim().replace(/\/$/, '');
+    if (!u) return u;
+    try {
+        const { hostname } = new URL(u.includes('://') ? u : `https://${u}`);
+        if (hostname === 'chat-api-v4.0804.in') return OMNI_API_BASE;
+    } catch {
+        /* ignore */
+    }
+    return u;
+}
+
 const config = {
     // Chatbot Configuration (priority: embed → Vite env → default)
     get chatbotId() {
@@ -9,19 +25,17 @@ const config = {
         return '69d4dd3255a54826a50b47f7';
     },
 
-    // API Configuration (priority: embed → VITE_API_BASE_URL → dev proxy → Omni Render default)
-    // Production default matches Admin; avoids chat-api-v4.0804.in (403/CORS on OmniAgentUI).
-    // Override: set VITE_API_BASE_URL on Render or .env (must include /api). Legacy Troika: set that URL explicitly.
+    // API: embed → VITE_* (build-time) → dev /api → Omni default. Legacy 0804.in → OMNI_API_BASE.
     get apiBaseUrl() {
         if (typeof window !== 'undefined' && window.__OMNIAGENT_CONFIG__?.apiBase) {
-            return String(window.__OMNIAGENT_CONFIG__.apiBase).replace(/\/$/, '');
+            return normalizeApiBase(window.__OMNIAGENT_CONFIG__.apiBase);
         }
         const fromEnv = import.meta.env.VITE_API_BASE_URL?.trim();
-        if (fromEnv) return fromEnv.replace(/\/$/, '');
+        if (fromEnv) return normalizeApiBase(fromEnv.replace(/\/$/, ''));
         if (import.meta.env.DEV) {
             return '/api';
         }
-        return 'https://omniagent-backend.onrender.com/api';
+        return OMNI_API_BASE;
     },
 
     // Feature Flags

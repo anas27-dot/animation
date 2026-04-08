@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import NovaPremiumEnterprise from './components/NovaPremiumEnterprise'
+import { normalizeApiBase } from './config'
 import { TranslationProvider } from './context/TranslationContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { ToastContainer } from 'react-toastify'
@@ -29,18 +30,20 @@ function initOmniAgentChatbot(config) {
         return;
     }
 
+    const resolvedApiBase = normalizeApiBase(apiBase) || apiBase;
+
     const container = document.getElementById(containerId);
     if (!container) {
         console.error(`❌ OmniAgent Chatbot: Container with id "${containerId}" not found`);
         return;
     }
 
-    console.log('🚀 Initializing OmniAgent Chatbot:', { chatbotId, apiBase, containerId });
+    console.log('🚀 Initializing OmniAgent Chatbot:', { chatbotId, apiBase: resolvedApiBase, containerId });
 
     // Store config globally so components can access it
     window.__OMNIAGENT_CONFIG__ = {
         chatbotId,
-        apiBase,
+        apiBase: resolvedApiBase,
         /** When set, NovaPremiumEnterprise avoids document.body scroll lock and portals the mobile drawer to body. */
         embedMode: true,
     };
@@ -51,7 +54,7 @@ function initOmniAgentChatbot(config) {
     root.render(
         <StrictMode>
             <TranslationProvider>
-                <AuthProvider apiBase={apiBase} chatbotId={chatbotId}>
+                <AuthProvider apiBase={resolvedApiBase} chatbotId={chatbotId}>
                     <NovaPremiumEnterprise />
                     <ToastContainer
                         position="top-right"

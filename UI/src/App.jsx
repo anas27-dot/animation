@@ -4,12 +4,10 @@ import AppErrorBoundary from './components/AppErrorBoundary'
 import { AuthProvider } from './contexts/AuthContext'
 import config from './config';
 
-const API_BASE_URL = config.apiBaseUrl;
-
 function App() {
   return (
     <AppErrorBoundary>
-      <AuthProvider apiBase={API_BASE_URL}>
+      <AuthProvider apiBase={config.apiBaseUrl}>
         <PreloaderGate>
           <NovaPremiumEnterprise />
         </PreloaderGate>
