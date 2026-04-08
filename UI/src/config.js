@@ -9,21 +9,19 @@ const config = {
         return '69d4dd3255a54826a50b47f7';
     },
 
-    // API Configuration (priority: embed → env → dev localhost → production)
+    // API Configuration (priority: embed → VITE_API_BASE_URL → dev proxy → Omni Render default)
+    // Production default matches Admin; avoids chat-api-v4.0804.in (403/CORS on OmniAgentUI).
+    // Override: set VITE_API_BASE_URL on Render or .env (must include /api). Legacy Troika: set that URL explicitly.
     get apiBaseUrl() {
         if (typeof window !== 'undefined' && window.__OMNIAGENT_CONFIG__?.apiBase) {
-            return window.__OMNIAGENT_CONFIG__.apiBase;
+            return String(window.__OMNIAGENT_CONFIG__.apiBase).replace(/\/$/, '');
         }
-        if (import.meta.env.VITE_USE_LIVE_API === 'true') {
-            return 'https://chat-api-v4.0804.in/api';
-        }
-        const fromEnv = import.meta.env.VITE_API_BASE_URL;
-        if (fromEnv) return fromEnv;
-        // Vite dev: use same-origin /api so vite.config.js proxy forwards to localhost:5000 (avoids CORS / blocked cross-port fetch).
+        const fromEnv = import.meta.env.VITE_API_BASE_URL?.trim();
+        if (fromEnv) return fromEnv.replace(/\/$/, '');
         if (import.meta.env.DEV) {
             return '/api';
         }
-        return 'https://chat-api-v4.0804.in/api';
+        return 'https://omniagent-backend.onrender.com/api';
     },
 
     // Feature Flags
