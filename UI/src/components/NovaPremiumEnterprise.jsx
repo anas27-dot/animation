@@ -2482,6 +2482,8 @@ export default function NovaPremiumEnterprise() {
       opacity: 10,
       style: 'watermark',
     },
+    /** Off until config loads — avoids skater flash while fetching (undefined !== false was wrongly "on"). */
+    skater_girl: { enabled: false, messages: [] },
   });
 
   const chatBodyBackgroundLayers = useMemo(() => {
@@ -4048,11 +4050,16 @@ export default function NovaPremiumEnterprise() {
   }, []);
 
   useEffect(() => {
+    if (!isConfigLoaded) return;
     if (isEmptyWelcomeUIMain && chatbotConfig?.skater_girl?.enabled !== false) {
       setShowSkater(true);
       setSkaterFall(false);
+    } else if (isEmptyWelcomeUIMain && chatbotConfig?.skater_girl?.enabled === false) {
+      setShowSkater(false);
+      setSkaterFall(false);
     }
-  }, [isEmptyWelcomeUIMain, chatbotConfig?.skater_girl?.enabled]);
+    /* When !isEmptyWelcomeUIMain (e.g. mid skater fall), do not toggle showSkater — fall handler clears it */
+  }, [isConfigLoaded, isEmptyWelcomeUIMain, chatbotConfig?.skater_girl?.enabled]);
 
   useEffect(() => {
     if (!isEmptyWelcomeUIMain) {
