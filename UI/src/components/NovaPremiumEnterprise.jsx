@@ -6810,7 +6810,8 @@ export default function NovaPremiumEnterprise() {
             justify-content: center !important;
             flex: 1 1 auto !important;
             min-height: 0 !important;
-            background: #ffffff !important;
+            /* Opaque white hid WelcomeBgCanvas (aurora/wave) on phones; shell/html stay white */
+            background: transparent !important;
           }
 
           /* Let configured chat background photo show through (welcome + thread) */
@@ -6826,6 +6827,39 @@ export default function NovaPremiumEnterprise() {
             max-width: 780px !important;
             min-width: unset !important;
             margin: 0 0 16px 0 !important;
+          }
+
+          /*
+           * Phones: keep the same spinning conic idea as desktop, but thinner ring + softer hues +
+           * slower spin so it stays lively without the heavy rainbow stripe look.
+           */
+          .manus-input-gradient-shell.manus-input-box-mobile {
+            padding: 1px !important;
+            border-radius: 18px !important;
+            background: conic-gradient(
+              from var(--angle),
+              #94a3b8,
+              #7dd3fc,
+              #818cf8,
+              #38bdf8,
+              #94a3b8
+            ) !important;
+            animation: borderSpin 12s linear infinite !important;
+            opacity: 1 !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07) !important;
+          }
+          .manus-input-gradient-shell.manus-input-box-mobile:focus-within {
+            box-shadow:
+              0 0 0 3px rgba(99, 102, 241, 0.14),
+              0 4px 14px rgba(2, 6, 111, 0.07) !important;
+          }
+          .manus-input-gradient-shell.manus-input-box-mobile.manus-input-gradient-shell--reduced {
+            animation: none !important;
+            opacity: 1 !important;
+          }
+          .manus-input-gradient-shell.manus-input-box-mobile .manus-input-box-large {
+            border-radius: 17px !important;
+            box-shadow: none !important;
           }
 
           /* ===== QUICK ACTION CARDS ===== */
@@ -8436,27 +8470,29 @@ export default function NovaPremiumEnterprise() {
                   <T>{(chatbotConfig.header_enabled && chatbotConfig.header_text) ? chatbotConfig.header_text : (chatbotConfig.assistant_display_name || 'Troika Tech Services')}</T>
                 </h2>
                 <div className="hidden md:flex items-center gap-2">
-                  <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+                  <span className="inline-flex shrink-0 items-center justify-center p-2 -m-2">
                     {API_CONFIG.CHATBOT_ID ? (
-                      <>
-                        <motion.span
-                          className="absolute inline-flex h-3 w-3 rounded-full border-2 border-[#2DA44E]"
-                          aria-hidden
-                          animate={
-                            uiSprings.prefersReduced
-                              ? { scale: 1, opacity: 0.5 }
-                              : { scale: [1, 2, 1], opacity: [0.5, 0, 0.5] }
-                          }
-                          transition={{
-                            duration: uiSprings.prefersReduced ? 0 : 2.4,
-                            repeat: uiSprings.prefersReduced ? 0 : Infinity,
-                            ease: 'easeInOut',
-                          }}
-                        />
-                        <span className="relative z-[1] h-2 w-2 rounded-full bg-[#2DA44E]" />
-                      </>
+                      <motion.span
+                        className="h-2 w-2 shrink-0 rounded-full bg-[#2DA44E] will-change-[box-shadow]"
+                        animate={
+                          uiSprings.prefersReduced
+                            ? { boxShadow: '0 0 0 0 rgba(45, 164, 78, 0)' }
+                            : {
+                                boxShadow: [
+                                  '0 0 0 0 rgba(45, 164, 78, 0.45)',
+                                  '0 0 0 7px rgba(45, 164, 78, 0)',
+                                  '0 0 0 0 rgba(45, 164, 78, 0)',
+                                ],
+                              }
+                        }
+                        transition={{
+                          duration: uiSprings.prefersReduced ? 0 : 2.4,
+                          repeat: uiSprings.prefersReduced ? 0 : Infinity,
+                          ease: 'easeInOut',
+                        }}
+                      />
                     ) : (
-                      <span className="h-2 w-2 rounded-full bg-amber-500" />
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
                     )}
                   </span>
                   <span className={`text-xs ${t.textMuted}`}>
