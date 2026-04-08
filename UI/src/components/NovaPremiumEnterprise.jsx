@@ -6797,12 +6797,13 @@ export default function NovaPremiumEnterprise() {
             padding: 0 !important;
           }
 
-          /* ===== MAIN CHAT HEADER — width/background; padding also from Tailwind ===== */
+          /* ===== MAIN CHAT HEADER — match sidebar branding strip (py-4 / 16px); no fixed min-height (avoids vertical drift vs sidebar) ===== */
           .chat-header-mobile {
             box-sizing: border-box !important;
             width: 100% !important;
-            min-height: 76.8px !important;
+            min-height: 0 !important;
             background: #ffffff !important;
+            padding: 16px 16px !important;
           }
 
           /* ===== HAMBURGER MENU BUTTON ===== */
@@ -7165,7 +7166,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           .chat-header-mobile {
-            padding: 12px 16px !important;
+            padding: 16px 16px !important;
           }
 
           .messages-container-mobile:not(.welcome-mode) {
@@ -7292,7 +7293,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           .chat-header-mobile {
-            padding: 10px 12px !important;
+            padding: 16px 12px !important;
           }
 
           .messages-container-mobile {
@@ -7332,7 +7333,7 @@ export default function NovaPremiumEnterprise() {
           }
 
           .chat-header-mobile {
-            padding: 8px 12px !important;
+            padding: 12px 12px !important;
           }
         }
 
@@ -8041,28 +8042,28 @@ export default function NovaPremiumEnterprise() {
               className={`relative shrink-0 px-4 py-4 border-b ${t.borderLight}`}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-start gap-3 min-w-0">
                   {chatbotConfig?.sidebar_branding?.enabled && chatbotConfig?.sidebar_branding?.branding_logo_url ? (
                     <a
                       href={chatbotConfig.sidebar_branding.branding_logo_link || '#'}
                       target={chatbotConfig.sidebar_branding.branding_logo_link ? '_blank' : undefined}
                       rel={chatbotConfig.sidebar_branding.branding_logo_link ? 'noopener noreferrer' : undefined}
-                      className="block flex-shrink-0"
+                      className="flex shrink-0 items-start leading-none"
                     >
                       <img
                         src={chatbotConfig.sidebar_branding.branding_logo_url}
                         alt={chatbotConfig.sidebar_branding.branding_text || 'AI Assistant'}
-                        className="w-10 h-10 rounded-xl object-cover"
+                        className="h-10 w-10 rounded-xl object-cover"
                         onError={(e) => {
                           e.target.src = OmniAgentLogo;
                         }}
                       />
                     </a>
                   ) : (
-                    <img src={OmniAgentLogo} alt="OmniAgent" className="w-10 h-10 rounded-xl object-cover flex-shrink-0" />
+                    <img src={OmniAgentLogo} alt="OmniAgent" className="h-10 w-10 shrink-0 rounded-xl object-cover" />
                   )}
-                  <div className="min-w-0">
-                    <h1 className={`font-semibold text-sm ${t.text} truncate`}>
+                  <div className="min-w-0 pt-0.5">
+                    <h1 className={`m-0 truncate text-sm font-semibold leading-tight ${t.text}`}>
                       <T>{chatbotConfig?.sidebar_branding?.branding_company || 'Troika Tech'}</T>
                     </h1>
                     <p className={`text-xs ${t.textMuted} truncate`}>
@@ -8465,22 +8466,22 @@ export default function NovaPremiumEnterprise() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col main-content-mobile">
         {/* Header */}
         <motion.div
-          className={`chat-header-mobile box-border flex min-h-[76.8px] w-full shrink-0 items-center border-b ${t.border} bg-white px-4 py-3 sm:px-6 md:px-8`}
+          className={`chat-header-mobile box-border flex w-full shrink-0 items-center border-b ${t.border} bg-white px-4 py-4 sm:px-6 md:px-8`}
           initial={uiSprings.prefersReduced ? false : { y: -40, opacity: 0 }}
           animate={shellHeaderControls}
           style={{ willChange: 'transform, opacity' }}
         >
           <div className="flex w-full items-center justify-between gap-2 sm:gap-4">
-            <div className="flex min-w-0 shrink-0 items-center gap-4">
+            <div className="flex min-w-0 shrink-0 items-start gap-4">
               {chatbotConfig?.header_logo_url ? (
-                <a href={chatbotConfig.header_logo_link || '#'} target="_blank" rel="noopener noreferrer">
+                <a href={chatbotConfig.header_logo_link || '#'} target="_blank" rel="noopener noreferrer" className="flex shrink-0 items-start leading-none">
                   <img src={chatbotConfig.header_logo_url} alt="Header Logo" className="h-[3.5rem] max-w-[140px] object-contain" />
                 </a>
               ) : (
-                <img src={OmniAgentLogo} alt="OmniAgent" className="w-11 h-11 rounded-full object-cover" />
+                <img src={OmniAgentLogo} alt="OmniAgent" className="w-11 h-11 shrink-0 rounded-full object-cover" />
               )}
-              <div>
-                <h2 className={`font-semibold ${t.text}`}>
+              <div className="min-w-0 pt-0.5">
+                <h2 className={`m-0 font-semibold leading-tight ${t.text}`}>
                   <T>{(chatbotConfig.header_enabled && chatbotConfig.header_text) ? chatbotConfig.header_text : (chatbotConfig.assistant_display_name || 'Troika Tech Services')}</T>
                 </h2>
                 <div className="hidden md:flex items-center gap-2">
