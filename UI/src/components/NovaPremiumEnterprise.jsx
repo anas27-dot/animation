@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, LayoutGroup, useReducedMotion, useAnimationControls } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import { FileText, Download, ExternalLink, BarChart3, TrendingUp, PieChart, Paperclip, X, Image as ImageIcon, User, LogOut, Search } from 'lucide-react';
+import { FileText, Download, ExternalLink, BarChart3, TrendingUp, PieChart, Paperclip, X, Image as ImageIcon, User, LogOut, Search, ShieldX } from 'lucide-react';
 import { getSvgIcon } from '../services/svgIcons.jsx';
 import WelcomeBgCanvas from './WelcomeBgCanvas';
 import RobotGirlWidget from './RobotGirlWidget';
@@ -2239,6 +2239,7 @@ export default function NovaPremiumEnterprise() {
   const [showCalendlyModal, setShowCalendlyModal] = useState(false);
   const [calendlyLoading, setCalendlyLoading] = useState(true);
   const [calendlyConfig, setCalendlyConfig] = useState(null);
+  const [showDemoAccessDeniedModal, setShowDemoAccessDeniedModal] = useState(false);
 
   // Email Intent State (similar to proposal intent)
   const [emailIntentConfig, setEmailIntentConfig] = useState(null);
@@ -3867,7 +3868,7 @@ export default function NovaPremiumEnterprise() {
 
   const handleSidebarQuickActionClick = (action) => {
     if (chatbotConfig?.demo_mode && (action.isProposal || action.isEmail || action.isCalendly)) {
-      window.alert('Access Denied on Demo');
+      setShowDemoAccessDeniedModal(true);
       return;
     }
     if (action.isProposal && action.action === 'get_quote') {
@@ -9627,6 +9628,55 @@ export default function NovaPremiumEnterprise() {
       }
 
       {/* Calendly Popup Modal */}
+      {showDemoAccessDeniedModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 bg-slate-900/55 backdrop-blur-md flex items-center justify-center z-[10000] p-4"
+            onClick={() => setShowDemoAccessDeniedModal(false)}
+            role="presentation"
+          >
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="demo-denied-title"
+              initial={{ opacity: 0, scale: 0.94, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-md rounded-3xl bg-white shadow-[0_25px_80px_-12px_rgba(15,23,42,0.45)] border border-white/60 overflow-hidden"
+            >
+              <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#5b21b6] via-fuchsia-500 to-orange-500" />
+              <button
+                type="button"
+                onClick={() => setShowDemoAccessDeniedModal(false)}
+                className="absolute top-4 right-4 z-10 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="px-8 pt-10 pb-8 text-center">
+                <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[#5b21b6] via-fuchsia-600 to-orange-500 shadow-lg shadow-fuchsia-500/25">
+                  <ShieldX className="h-10 w-10 text-white" strokeWidth={2} />
+                </div>
+                <h2 id="demo-denied-title" className="text-2xl font-bold tracking-tight bg-gradient-to-r from-[#5b21b6] via-fuchsia-600 to-orange-500 bg-clip-text text-transparent">
+                  Access Denied on Demo
+                </h2>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                  Email, proposal, and meeting shortcuts are turned off for this demo. Upgrade to the full experience to use them.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowDemoAccessDeniedModal(false)}
+                  className="mt-8 w-full rounded-2xl py-3.5 px-6 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 bg-gradient-to-r from-[#5b21b6] via-fuchsia-600 to-orange-500 hover:opacity-95 active:scale-[0.99] transition-all"
+                >
+                  Got it
+                </button>
+              </div>
+            </motion.div>
+          </div>,
+          document.body
+        )}
+
       {showCalendlyModal && calendlyConfig?.url && createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-2xl w-full max-w-4xl h-[80vh] shadow-2xl border border-gray-100 flex flex-col animate-in fade-in-0 zoom-in-95 duration-200">

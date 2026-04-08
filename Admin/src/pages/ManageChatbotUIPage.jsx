@@ -57,7 +57,7 @@ import {
   updateProductImagesConfig,
   updateChatbotSkaterGirl,
 } from "../services/api";
-import { Image, Type, Loader2, MessageSquare, Phone, PhoneCall, Settings, Calendar, Mail, Plus, Edit2, Trash2, X, Share2, Sparkles, Heading, Navigation, Monitor, ArrowLeft, Eye, EyeOff, Search, Shield, Database, CheckCircle2, Presentation } from "lucide-react";
+import { Image, Type, Loader2, MessageSquare, Phone, PhoneCall, Settings, Calendar, Mail, Plus, Edit2, Trash2, X, Share2, Sparkles, Heading, Navigation, Monitor, ArrowLeft, Eye, EyeOff, Search, Shield, Database, CheckCircle2, Presentation, ShieldX } from "lucide-react";
 
 /** Pre-filled example rows for Header Nav (same idea as chat widget defaults). */
 const HEADER_NAV_EXAMPLE_ROWS = [
@@ -208,6 +208,7 @@ const ManageChatbotUIPage = () => {
   const [updatingMaster, setUpdatingMaster] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [updatingDemo, setUpdatingDemo] = useState(false);
+  const [showDemoTabBlockedModal, setShowDemoTabBlockedModal] = useState(false);
   const [updatingWhatsApp, setUpdatingWhatsApp] = useState(false);
   const [updatingCall, setUpdatingCall] = useState(false);
   const [updatingCalendly, setUpdatingCalendly] = useState(false);
@@ -1895,7 +1896,7 @@ const ManageChatbotUIPage = () => {
   const DEMO_BLOCKED_UI_SECTIONS = new Set(["calendly", "email", "intent"]);
   const goToChatbotUISection = (section) => {
     if (demoMode && DEMO_BLOCKED_UI_SECTIONS.has(section)) {
-      window.alert("Access Denied on Demo");
+      setShowDemoTabBlockedModal(true);
       return;
     }
     setActiveSection(section);
@@ -2583,9 +2584,57 @@ const ManageChatbotUIPage = () => {
     }
   };
 
+  const demoTabBlockedModal = showDemoTabBlockedModal ? (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-md"
+      onClick={() => setShowDemoTabBlockedModal(false)}
+      role="presentation"
+    >
+      <div
+        className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/60 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-demo-denied-title"
+      >
+        <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#5b21b6] via-fuchsia-500 to-orange-500" />
+        <button
+          type="button"
+          className="absolute right-4 top-4 z-10 rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          onClick={() => setShowDemoTabBlockedModal(false)}
+          aria-label="Close"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <div className="px-8 pb-8 pt-10 text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[#5b21b6] via-fuchsia-600 to-orange-500 shadow-lg shadow-fuchsia-500/25">
+            <ShieldX className="h-10 w-10 text-white" strokeWidth={2} />
+          </div>
+          <h2
+            id="admin-demo-denied-title"
+            className="text-2xl font-bold tracking-tight bg-gradient-to-r from-[#5b21b6] via-fuchsia-600 to-orange-500 bg-clip-text text-transparent"
+          >
+            Access Denied on Demo
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            These sections are hidden while Demo mode is on. Turn off Demo mode in the card above to edit Email, Intent &amp; Proposals, or Calendly.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowDemoTabBlockedModal(false)}
+            className="mt-8 w-full rounded-2xl bg-gradient-to-r from-[#5b21b6] via-fuchsia-600 to-orange-500 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition-all hover:opacity-95 active:scale-[0.99]"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // If chatbotId is in query params, show configuration view
   if (chatbotIdFromQuery) {
     return (
+      <>
       <div className="p-6 max-w-6xl mx-auto">
         <div className="mb-6 flex items-center gap-4">
           <button
@@ -7294,7 +7343,9 @@ const ManageChatbotUIPage = () => {
 
 
 
-      </div >
+      </div>
+        {demoTabBlockedModal}
+      </>
     );
   }
 
